@@ -21,10 +21,11 @@ COPY *.go ./
 RUN CGO_ENABLED=0 go test ./...
 # CGO off gives a static binary that runs on a base image without libc.
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/hello .
+# Use a writable output directory when the platform's Go base runs as non-root.
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /tmp/hello .
 
 FROM registry.example.com/base/static:<tag>
-COPY --from=build /out/hello /hello
+COPY --from=build /tmp/hello /hello
 # Numeric non-root user: the workload namespaces enforce the `restricted` Pod
 # Security level, which requires runAsNonRoot and can only check a numeric UID.
 USER 65532:65532
