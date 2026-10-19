@@ -1,0 +1,95 @@
+# Series: 02 §6/§7 — Argo CD AppProject that bounds the platform Applications
+# The platform layers may only be read from the platform repository and may only
+# write the kinds listed below. Project AppProjects are NOT declared here: the
+# platform may synchronize one per platform project (series 02 §6); the
+# projects layer only patches the fields its declaration decides
+# (templates/appproject-patch.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Platform configuration managed from the platform repository
+  sourceRepos:
+    - https://git.example.com/platform/platform-config.git
+  destinations:
+    # <cluster-name> is the name under which Alauda GitOps registered this
+    # ACP cluster in Argo CD (the ACP cluster name, `global` on the global
+    # cluster), not `in-cluster`: the operator's default `in-cluster` entry is
+    # limited to namespace argocd and cannot manage cluster-scoped objects
+    # (README "Prerequisites"). Argo CD objects live in argocd of that cluster.
+    - name: <cluster-name>
+      namespace: argocd
+    # The management namespace the platform layers are applied to.
+    - name: <cluster-name>
+      namespace: platform-connectors
+    # Cluster-scoped objects (ClusterPolicy, TektonConfig, platform project)
+    # have no namespace.
+    - name: <cluster-name>
+      namespace: ""
+    # projects/<project>/ (rendered by onboarding, merged by review): Argo CD
+    # objects in argocd, the owners' RoleBinding in each project namespace and
+    # the Connector-mount Roles and RoleBindings in <project> and <project>-cd.
+    # Project namespaces are not known in advance, hence the wildcard; the
+    # namespaced whitelist below limits what can be written there. The
+    # projects layer shares this AppProject with the platform layers, so a
+    # file slipped into projects/<project>/ of an onboarding merge request may
+    # use every kind below, ClusterRole and ClusterRoleBinding included; a
+    # separate AppProject for the projects layer is the hardening (README
+    # "Operating notes and hardening").
+    - name: <cluster-name>
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: kyverno.io
+      kind: ClusterPolicy
+    - group: operator.tekton.dev
+      kind: TektonConfig
+    # PLACEHOLDER: the platform project exported by onboarding
+    # (projects/<project>/platform-project.yaml); confirm group and kind.
+    - group: <platform-project-group>
+      kind: <platform-project-kind>
+    # Cluster-scoped permissions of the onboarding ServiceAccount (onboarding/).
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  namespaceResourceWhitelist:
+    - group: argoproj.io
+      kind: Application
+    - group: argoproj.io
+      kind: AppProject
+    - group: bitnami.com
+      kind: SealedSecret
+    - group: connectors.alauda.io
+      kind: Connector
+    # Only for the optional onboarding/optional/admin-connectors-access.yaml,
+    # added to onboarding/kustomization.yaml once the Connectors approval
+    # feature is on (an AccessPolicy is accepted only from then on).
+    - group: connectors.alauda.io
+      kind: AccessPolicy
+    # PaC Repository of the platform repository (credentials/).
+    - group: pipelinesascode.tekton.dev
+      kind: Repository
+    - group: ""
+      kind: ConfigMap
+    # Owners' and Connector-mount RoleBindings of each project
+    # (projects/<project>/) and the onboarding RoleBindings in
+    # platform-connectors (onboarding/).
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+    # onboarding/: its ServiceAccount, Roles, Pipeline, Run Template,
+    # TriggerBinding and per-project ScheduledTriggers; projects/<project>/:
+    # the Connector-mount Roles.
+    - group: ""
+      kind: ServiceAccount
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: tekton.dev
+      kind: Pipeline
+    - group: triggers.tekton.dev
+      kind: TriggerTemplate
+    - group: triggers.tekton.dev
+      kind: TriggerBinding
+    - group: tekton.alaudadevops.io
+      kind: ScheduledTrigger

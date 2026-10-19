@@ -1,0 +1,19 @@
+# Series: 02 §16 — project GitOps template: production overlay, copied to envs/prod/ at seeding
+# Seeding uses this directory instead of envs/_env for the environment `prod`
+# (an envs/_<env> directory wins over envs/_env) and sets `namespace`. Production
+# pulls from the release project shop-prod that promotion copies into (series
+# 01 §6), so `newName` is set here, once, and every later update by the
+# delivery pipeline changes only `digest`. Until the first promoted digest is
+# merged the prod Application renders this placeholder and no Pod can start:
+# the first production deployment waits for the first promotion.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shop-prod
+resources:
+  - ../../base
+images:
+  # Never switch this entry to a tag, and do not change `newName` in a
+  # promotion: only `digest` moves.
+  - name: registry.example.com/shop/hello
+    newName: registry.example.com/shop-prod/hello
+    digest: sha256:<digest>

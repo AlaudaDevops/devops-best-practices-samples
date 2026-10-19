@@ -1,0 +1,15 @@
+# Series: 02 §5 — component layer: TektonConfig fragments for run pruning, result retention and the Chains registry credential
+# tektonconfig.yaml names the singleton TektonConfig `config`; each fragment is
+# merged into it as a patch, so the rendered output is ONE partial TektonConfig.
+# Argo CD applies it with server-side apply and owns only these fields; every
+# other TektonConfig field stays with the operator and the installer.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - tektonconfig.yaml
+patches:
+  - path: pruner-defaults.yaml
+  - path: results-retention.yaml
+  # Needs Secret chains-registry-credential in the Chains namespace before the
+  # first sync (header of the file).
+  - path: chains-registry-credential.yaml

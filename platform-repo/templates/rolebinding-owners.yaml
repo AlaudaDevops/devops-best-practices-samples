@@ -1,0 +1,24 @@
+# Series: 02 §13/§16 — template: project administrators taken from the declaration's `owners` (rendered by onboarding step 7)
+# render.sh writes it to projects/<project>/rolebinding-owners.yaml with one
+# Group subject per entry of `owners` (ACP Group resource names, as Kubernetes
+# sees them; a console-created group has a generated name such as `g-xxxxx`
+# and its display name does not work). Owners are groups, never individuals, so
+# a change of people is a change of group membership, not of this file. The
+# `projects` Application keeps the binding in place: a RoleBinding deleted by
+# hand is restored on the next sync (series 02 §15). The values below are the
+# rendered form for project `shop`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: shop-owners
+  namespace: shop
+  labels:
+    app.kubernetes.io/part-of: shop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: shop-platform-owners

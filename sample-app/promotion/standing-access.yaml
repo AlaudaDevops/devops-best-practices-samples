@@ -1,0 +1,65 @@
+# Series: 01 §6.2 — sample application promotion: standing Connector access for the release identity (everything except the approval-gated credential)
+# Applied in the Connector namespace platform-connectors, with or without the
+# approval flags. Role + RoleBinding, two rules:
+# 1. `get` on both Connectors that the promotion run mounts (the read-only
+#    staging Connector and the release Connector). This `get` is what the CSI
+#    driver checks before it mounts the two Connectors for the release
+#    identity (Connectors documentation, "Connectors Proxy Authentication":
+#    https://docs.alauda.io/alauda-devops-connectors/1.14/connectors/concepts/connectors_proxy.html#connectors-proxy-authentication).
+# 2. `connectors/proxy` with verb `*` on the read-only staging Connector only.
+#    Once `enable-connectors-approval` is on, `get` no longer lets a Pod mount
+#    a Connector: the CSI driver (and, with `enable-connector-proxy-permissions`,
+#    the proxy) checks `connectors/proxy` with verb `*`; `get` on it does not
+#    pass. This rule is inert while the flag is off.
+#    This identity gets the rule from this Role: an AccessPolicy
+#    `defaultPermission` applies to subjects with namespace-wide `get` on
+#    Connectors in this namespace, and this identity has `get` on two named
+#    Connectors only.
+# Proxy access to the release Connector is NOT granted here; with the approval
+# flag on it comes only from access-policy.yaml, after approval.
+# Check afterwards, while no promotion is in flight; the expected answer is "no":
+#   kubectl auth can-i '*' connectors.connectors.alauda.io/shop-prod-registry --subresource=proxy \
+#     --as=system:serviceaccount:shop-cd:shop-release -n platform-connectors
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: shop-release-mount
+  namespace: platform-connectors
+  labels:
+    app.kubernetes.io/part-of: shop
+rules:
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors
+    resourceNames:
+      - shop-registry-readonly
+      - shop-prod-registry
+    verbs:
+      - get
+  # Proxy access to the read-only staging Connector once
+  # `enable-connectors-approval` is on; inert while it is off.
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors/proxy
+    resourceNames:
+      - shop-registry-readonly
+    verbs:
+      - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: shop-release-mount
+  namespace: platform-connectors
+  labels:
+    app.kubernetes.io/part-of: shop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: shop-release-mount
+subjects:
+  - kind: ServiceAccount
+    name: shop-release
+    namespace: shop-cd

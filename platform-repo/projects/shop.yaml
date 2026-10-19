@@ -1,0 +1,71 @@
+# Series: 02 §8/§16 — project declaration for `shop`, read by the onboarding pipeline
+# Adding a project = adding one file like this through a merge request. The file
+# says WHAT the project needs; it holds no credentials and no tool-side object
+# IDs (those are pipeline results written to the cluster, never back to git).
+# The tool-side names below follow the naming convention of series 02 §16
+# (group = project name, Harbor projects = <name> and <name>-prod, Nexus
+# repositories = <name>-maven / <name>-npm); they are spelled out so a reviewer
+# can read the declaration without knowing the convention.
+name: shop
+# The platform project must already exist on the platform (created manually,
+# see platform-projects.md). Onboarding does not create it; step 1 exports its
+# manifest and step 7 proposes it as projects/shop/platform-project.yaml.
+platformProject: shop
+# Project administrators: groups, never individuals, so a change of people is
+# a change of group membership. Write the ACP Group resource name (NAME of
+# `kubectl get groups.auth.alauda.io`), not the display name typed in the
+# console. Onboarding binds them to `admin` in the project
+# namespace (templates/rolebinding-owners.yaml, series 02 §16).
+owners:
+  - shop-platform-owners
+environments:
+  - test
+  - prod
+# Tools the project is onboarded into (series 02 §16). This sample implements
+# all four; onboarding step 1 rejects a list with any other entry or a missing one.
+tools:
+  - gitlab
+  - harbor
+  - nexus
+  - sonarqube
+namespaces:
+  # Workload namespaces get pod-security.kubernetes.io/enforce=restricted.
+  workloads:
+    - shop
+    - shop-test
+    - shop-prod
+  # Image builds (buildah) cannot run under restricted, so they get their own
+  # namespace labelled baseline.
+  build: shop-build
+  # Delivery namespace (restricted): CD and promotion run here with the
+  # ServiceAccounts shop-delivery and shop-release that onboarding creates;
+  # it also holds the GitOps writer Connector shop-gitops-writer.
+  delivery: shop-cd
+gitlab:
+  group: shop
+  subgroups:
+    - apps
+    - gitops
+harbor:
+  projects:
+    - shop
+    - shop-prod
+nexus:
+  repositories:
+    - name: shop-maven
+      format: maven2
+      type: hosted
+    - name: shop-npm
+      format: npm
+      type: hosted
+sonarqube:
+  project: shop
+# Approval gate for promotion into each protected environment; reference a
+# group, never an individual, by its ACP Group resource name.
+approvers:
+  prod: group:release-managers
+# Cross-project image pulls: list the projects whose images this project may
+# pull. Left empty (null) it means no cross-project access, for example:
+# imagePullFrom:
+#   - payments
+imagePullFrom:

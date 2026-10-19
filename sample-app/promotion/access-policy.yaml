@@ -1,0 +1,51 @@
+# Series: 01 §6.2 — sample application promotion: release the release-registry Connector only after approval
+# Applied in the Connector namespace platform-connectors. Proxy access to the
+# release Connector `shop-prod-registry` is granted to the Pods of a promotion
+# run, and only after the ApprovalTask of that run is approved by an approver
+# listed here (Connectors documentation: *AccessPolicy*). What else to restrict
+# in shop-cd: sample-app/README.md, "Operating notes and hardening".
+# Keep `approvers` identical to the wait-for-approval list in pipeline.yaml
+# and to `approvers.prod` of the project declaration (the reviewed record;
+# nothing copies or checks it). Always set `approvers` here: it ties the
+# release of the credential to the approvers of this list.
+# Can be applied only after a platform administrator turns on the cluster-wide
+# flag `enable-connectors-approval`; AccessPolicies are accepted from then on.
+# It takes effect as soon as that flag is on: from then on the CSI driver
+# checks `connectors/proxy` (verb `*`) for every mount, and
+# `enable-connector-proxy-permissions` adds the same check in the proxy. Order:
+# prepare a proxy grant for every identity that mounts a Connector not behind
+# approval (for the release identity's read-only Connector: the second rule of
+# standing-access.yaml); give no identity a direct grant on the release
+# Connector, so that its mount always goes through the approval; approval flag;
+# immediately this file (the release Connector mount needs it) and the
+# AccessPolicies among those grants; then the proxy-permissions flag.
+# Optional layer (series 01 §6.2): worth it when the owners of the release
+# credential are not the owners of the pipelines.
+apiVersion: connectors.alauda.io/v1alpha1
+kind: AccessPolicy
+metadata:
+  name: shop-release-approval
+  namespace: platform-connectors
+  labels:
+    app.kubernetes.io/part-of: shop
+spec:
+  connector:
+    names:
+      - shop-prod-registry
+  checkGrantedPermission:
+    spec:
+      checks:
+        - name: manual-approval
+          ref:
+            configMap:
+              name: connectors-approvals-in-pipeline
+          params:
+            - name: approvers
+              value:
+                - group:release-managers
+            - name: numberOfApprovalsRequired
+              value: "1"
+      roleTemplate:
+        ref:
+          configMap:
+            name: connectors-use-connectors-proxy-in-pod

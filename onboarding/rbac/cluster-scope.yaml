@@ -1,0 +1,60 @@
+# Series: 02 §9/§14 — cluster-scoped permissions of the onboarding ServiceAccount (step 1)
+# Step 1 creates and labels the project namespaces, then binds
+# project-onboarding-namespace inside each of them. The `bind` verb is limited
+# to that one ClusterRole, so the ServiceAccount cannot grant itself anything
+# else through the RoleBindings it creates. Step 1 also reads the platform
+# project to export it; its API group and resource are placeholders to confirm
+# on your platform (same value as the Pipeline param platform-project-resource).
+# Replace both placeholders before this directory is synced for the first
+# time, and again when you copy a newer version of this file over one that is
+# in use: the file is cluster-scoped, and a sync with the placeholders in it
+# takes the `get` on the platform project away from the ServiceAccount.
+# `kubectl api-resources | grep -i project` lists the group and the resource.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: project-onboarding
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - create
+      - patch
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - rolebindings
+    verbs:
+      - get
+      - create
+      - patch
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - clusterroles
+    resourceNames:
+      - project-onboarding-namespace
+    verbs:
+      - bind
+  - apiGroups:
+      - <platform-project-group>
+    resources:
+      - <platform-project-resource>
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: project-onboarding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: project-onboarding
+subjects:
+  - kind: ServiceAccount
+    name: project-onboarding
+    namespace: platform-connectors

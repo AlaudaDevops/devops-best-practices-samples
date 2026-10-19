@@ -1,0 +1,7 @@
+# Series: 02 §5 — the singleton TektonConfig that the fragments in this directory patch
+# Intentionally empty: all content comes from the patch files listed in
+# kustomization.yaml, one file per platform baseline item.
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config

@@ -1,0 +1,117 @@
+# Series: 01 §3.3/§7 — sample application CI on merge requests: build and scan unmerged code without touching the staging repository
+# Pipelines-as-Code runs this PipelineRun on every merge request to main. It is
+# the pre-merge check (compile, unit tests in the Containerfile, image scan);
+# it blocks a merge only when the Git platform requires it to pass, which this
+# sample does not configure. It must not produce anything CD or promotion can
+# pick up. The scan step of the catalog Pipeline reads the image from the
+# registry, so the image is pushed, but only to the scratch repository
+# registry.example.com/shop/hello-mr. CD to test and promotion accept only
+# registry.example.com/shop/hello (cd/run-template-test.yaml,
+# promotion/run-template.yaml and the validate-digest task), which, of this
+# sample's PipelineRuns, only ci.yaml writes, on main. Give hello-mr a short
+# Harbor tag retention.
+# Run or re-run it from a merge request comment with the command below; PaC
+# runs the merge request's source branch there and ignores `branch:`, so write
+# the source branch:
+#   /test ci-merge-request branch:<source-branch>
+# The PaC Repository for this repository (shop/apps/hello) lives in the build
+# namespace (shop-build, Pod Security `baseline`), because buildah cannot run
+# under the `restricted` level enforced on the workload namespaces. Onboarding
+# does not create it; see "Application repository and its PaC Repository" in
+# README.md for the manifest and its prerequisites.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: ci-merge-request
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[pull_request]"
+    pipelinesascode.tekton.dev/on-target-branch: "[main]"
+    pipelinesascode.tekton.dev/max-keep-runs: "10"
+spec:
+  # Resolver-form pipelineRef with an explicit version: upgrading the build logic
+  # means changing `version` here through a merge request.
+  # python-image-build-scan-deploy 0.3 is used as a language-neutral "clone ->
+  # build Containerfile -> scan" line: its Python pre-build step runs only when
+  # preBuildScript is set, the SonarQube step only when sonarURL is set, and
+  # the deploy step only when workloadName is set, so all three are skipped
+  # here. The Go compile and unit tests run inside the multi-stage
+  # Containerfile.
+  pipelineRef:
+    resolver: hub
+    params:
+      - name: catalog
+        value: catalog-pipelines
+      - name: kind
+        value: pipeline
+      - name: name
+        value: python-image-build-scan-deploy
+      - name: version
+        value: "0.3"
+  params:
+    - name: gitURL
+      value: "{{ repo_url }}"
+    - name: gitRevision
+      value: "{{ revision }}"
+    # Scratch repository for unmerged code; the sample's CD and promotion
+    # Run Templates do not use it.
+    - name: images
+      value:
+        - "registry.example.com/shop/hello-mr:{{ revision }}"
+    - name: containerfilePath
+      value: ./Containerfile
+    - name: buildContext
+      value: .
+    # Fail the run on HIGH or CRITICAL findings only; the scan step reads the
+    # image just pushed (the first entry of `images`).
+    - name: trivySeverity
+      value:
+        - HIGH
+        - CRITICAL
+    - name: trivyExitCode
+      value: "1"
+    # Air gap: without a DB repository trivy-scanner downloads its
+    # vulnerability DB from mirror.gcr.io and the run fails offline. Point it
+    # at your internal mirror of mirror.gcr.io/aquasec/trivy-db:2 (placeholder
+    # below, README "Replacement points"); the scan step must be able to pull
+    # it (an anonymous-pull project, or one the shop-harbor credential reads).
+    - name: trivyExtraArgs
+      value:
+        - --db-repository
+        - registry.example.com/mirror/trivy-db:2
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+    # Git credentials that PaC generates for this run (clone only).
+    - name: git-basic-auth
+      secret:
+        secretName: "{{ git_auth_secret }}"
+    # Push credentials for the project's Harbor project `shop`, provided by
+    # the project-level Harbor Connector `shop-harbor` that onboarding step 3
+    # (harbor-tenant, connector <project>/<project>-harbor) writes into the
+    # project namespace.
+    - name: registry-config
+      csi:
+        driver: connectors-csi
+        readOnly: true
+        volumeAttributes:
+          connectors: shop/shop-harbor
+          configuration.names: registry-config
+    # CA of the Connectors proxy. registry-config routes buildah and trivy
+    # through the proxy, which re-signs TLS with its own CA; this workspace
+    # (mapped to buildah's cert-dir and trivy's ca-bundle) supplies that CA. It
+    # is needed also for a registry with a public certificate. `!ca.cert`
+    # leaves out the deprecated ca.cert alias: in a cert directory a *.cert
+    # file is read as a client certificate and needs a matching key.
+    - name: ca-bundle
+      csi:
+        driver: connectors-csi
+        readOnly: true
+        volumeAttributes:
+          connectors: shop/shop-harbor
+          configuration.names: registry-config,!ca.cert

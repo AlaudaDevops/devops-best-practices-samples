@@ -1,0 +1,101 @@
+# Series: 02 §6/§7 — platform baseline: project Applications may not deploy Role, RoleBinding, ResourceQuota, LimitRange or NetworkPolicy into project namespaces (Enforce)
+# The project boundary an AppProject namespaceResourceBlacklist would give.
+# The project boundary of series 02 §6. On ACP, Alauda GitOps manages the
+# AppProject named after each platform project; templates/appproject-patch.yaml
+# sets sourceRepos and destinations on it, and this policy refuses the five
+# kinds (README "Operating notes and hardening").
+# The decision is anchored on who writes (request.userInfo: the identities
+# Argo CD uses for this cluster) and on which Application owns the object
+# (the tracking id Argo CD writes on every object it applies), so background
+# scans are off. Objects of the `projects` Application of this repository
+# (owners' RoleBinding, Connector-mount Roles and RoleBindings) pass; a project
+# repository cannot borrow that name, because Argo CD overwrites the tracking
+# id with the Application's own at sync time.
+# Enforce from the start, unlike the other baseline policies: it replaces a
+# refusal that Argo CD would otherwise make. Keep allowExistingViolations
+# false: with Kyverno's default (true) an UPDATE of an object that already
+# exists, e.g. the onboarding RoleBinding of a namespace, passes as an
+# "existing violation".
+# Platform administrators and the onboarding ServiceAccount write as other
+# users and are not affected while Kyverno runs. The Kyverno webhook fails
+# closed (failure policy Fail): while Kyverno is down every write this policy
+# matches (the five kinds in project namespaces, by any identity) is refused;
+# to recover, bring Kyverno back first, or delete this policy.
+# Without the `roles` rule of kyverno-reports-rolebindings.yaml, Kyverno
+# warns on apply that its reports controller cannot read Roles; that affects
+# reports only, Enforce works. With the rule the warning is gone.
+# Namespaces: every namespace of a platform project (cpaas.io/project), not
+# only the environments, because the platform adds all project namespaces to
+# the destinations of the project's AppProject; the platform's own system
+# namespaces (project cpaas-system) are left out.
+# Required check after applying. If the identities under the deny
+# conditions are not the ones your Argo CD writes with, the rule matches
+# nothing and nothing reports it. So, as a cluster administrator, run once
+# per Argo CD identity (found as in the README placeholder table), in a
+# namespace labelled cpaas.io/project:
+#   kubectl -n <project>-test create rolebinding boundary-probe \
+#     --clusterrole=view --group=nobody --dry-run=server --as=<identity>
+# It must be refused with this policy's message: "Argo CD (<identity>) may
+# not CREATE RoleBinding <project>-test/boundary-probe: ...". If it is
+# created, the identities do not match your cluster and the boundary is
+# absent. A refusal by RBAC ("forbidden") means that identity cannot write
+# there at all, so this policy is not what stops it.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: argocd-project-namespace-boundary
+spec:
+  background: false
+  rules:
+    - name: no-boundary-kinds-from-project-applications
+      match:
+        any:
+          - resources:
+              kinds:
+                - rbac.authorization.k8s.io/v1/Role
+                - rbac.authorization.k8s.io/v1/RoleBinding
+                - ResourceQuota
+                - LimitRange
+                - networking.k8s.io/v1/NetworkPolicy
+              operations:
+                - CREATE
+                - UPDATE
+                - DELETE
+              namespaceSelector:
+                matchExpressions:
+                  - key: cpaas.io/project
+                    operator: Exists
+                  # Replace with the project of your platform's system namespaces.
+                  - key: cpaas.io/project
+                    operator: NotIn
+                    values:
+                      - cpaas-system
+      context:
+        # Application that owns the object: the part of the tracking id before
+        # the first ':' (request.oldObject on DELETE).
+        - name: trackedBy
+          variable:
+            jmesPath: "split(request.object.metadata.annotations.\"argocd.argoproj.io/tracking-id\" || request.oldObject.metadata.annotations.\"argocd.argoproj.io/tracking-id\" || '', ':')[0]"
+            default: ""
+      validate:
+        failureAction: Enforce
+        allowExistingViolations: false
+        message: "Argo CD ({{ request.userInfo.username }}) may not {{ request.operation }} {{ request.kind.kind }} {{ request.namespace }}/{{ request.name }}: Role, RoleBinding, ResourceQuota, LimitRange and NetworkPolicy in project namespaces come from the platform, not from a project GitOps repository (tracked by '{{ trackedBy }}')"
+        deny:
+          conditions:
+            all:
+              # Replace with the identities your Argo CD writes with: the
+              # ServiceAccount of the cluster Alauda GitOps registered
+              # (<cluster-name>) and the application controller's own
+              # ServiceAccount (in-cluster).
+              - key: "{{ request.userInfo.username }}"
+                operator: AnyIn
+                value:
+                  - system:serviceaccount:cpaas-system:argocd-manager
+                  - system:serviceaccount:argocd:argocd-gitops-argocd-application-controller
+              # Replace with the name of the Application that applies projects/
+              # (argocd/apps/projects.yaml).
+              - key: "{{ trackedBy }}"
+                operator: AnyNotIn
+                value:
+                  - projects

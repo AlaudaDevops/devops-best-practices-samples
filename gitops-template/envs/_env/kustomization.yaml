@@ -1,0 +1,18 @@
+# Series: 02 §16 — project GitOps template: per-environment overlay, copied to envs/<env>/ at seeding
+# Seeding copies this directory once per environment in the project declaration
+# that has no template of its own (for `shop`: envs/test/; envs/prod/ comes
+# from envs/_prod) and sets `namespace` to that environment's namespace
+# (shop-test). The value below is the test environment, so the template itself
+# renders and can be validated as is.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shop-test
+resources:
+  - ../../base
+images:
+  # The delivery pipeline sets `digest` (and `newName`) of this entry with
+  # `kustomize edit set image`; its first commit also re-serializes this file
+  # (list indentation, key order, place of this comment). Never switch this
+  # entry to a tag.
+  - name: registry.example.com/shop/hello
+    digest: sha256:<digest>

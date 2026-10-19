@@ -1,0 +1,33 @@
+# Series: 02 §9–§12 — onboarding: Pipeline, merge-triggered dispatcher Pipeline, Run Template, per-project ScheduledTriggers and release-Connector RBAC, ServiceAccount and RBAC
+# Renders everything this directory holds. Every namespaced object lands in the
+# management namespace platform-connectors, where the admin-level Connectors,
+# the project declarations and the platform repository's PaC Repository live
+# too, so the pipeline mounts the admin Connectors from its own namespace. The
+# four Connectors
+# automatic-creation Tasks are NOT rendered here: install them from the
+# product documentation (see README.md).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - rbac/serviceaccount.yaml
+  - rbac/cluster-scope.yaml
+  - rbac/project-namespace-clusterrole.yaml
+  - rbac/management-namespace.yaml
+  - rbac/admin-connectors.yaml
+  # Only after a platform administrator turned on enable-connectors-approval
+  # (AccessPolicies are accepted from then on); see the file header. Where the
+  # flag is on and the line below is in use, keep it when you copy a newer
+  # version of this file: the Application prunes, so a sync without the line
+  # deletes AccessPolicy project-onboarding-admin-access.
+  # - optional/admin-connectors-access.yaml
+  # One file per onboarded project: its promotion Connectors in this namespace.
+  - rbac/release-connectors-shop.yaml
+  - rbac/release-connectors-payments.yaml
+  - pipeline/project-onboarding.yaml
+  # Started by the platform repository's .tekton/onboard-changed-projects.yaml.
+  - pipeline/onboard-changed-projects.yaml
+  - run-template/triggertemplate.yaml
+  - run-template/triggerbinding.yaml
+  # One ScheduledTrigger per onboarded project.
+  - triggers/shop.yaml
+  - triggers/payments.yaml

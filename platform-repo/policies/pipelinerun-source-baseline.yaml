@@ -1,0 +1,68 @@
+# Series: 02 §5.1 — optional constraint: PipelineRuns must use an approved resolver (Audit)
+# Optional: the platform administrator decides per scenario whether to enable
+# it; the baseline that stays on is no-bare-taskrun.yaml (Audit until switched to Enforce). To turn it off,
+# remove this file from kustomization.yaml in this directory.
+# Only answers "where does this PipelineRun's definition come from": the
+# pipelineRef.resolver must be cluster, hub or git; an inline pipelineSpec (no
+# pipelineRef) is denied as well. Judged at creation only (CREATE, no
+# background scan), so controller updates of existing runs are not evaluated.
+# Keep Audit until the PolicyReports show no false positives, then switch
+# failureAction to Enforce. The exclude list holds the platform management
+# namespace, where the onboarding pipeline runs admin tasks.
+# What it gives: the source type of every PipelineRun definition is
+# auditable. This sample enables only this source-type rule. Stricter rules
+# that pin the git `url`, the Hub `catalog` or the cluster `namespace` are
+# shown in the commented example below and in the product documentation
+# (Catalog guide "Constrain Catalog Pipeline Usage with Kyverno"). Who may
+# create PipelineRuns in a namespace, and under which ServiceAccount, is
+# decided by RBAC.
+# Optional tightening, not enabled here: a second rule that, for runs whose
+# resolver is git, denies any url outside a reviewed list, for example
+#   preconditions:
+#     all:
+#       - key: "{{ request.object.spec.pipelineRef.resolver || '' }}"
+#         operator: Equals
+#         value: git
+#   deny:
+#     conditions:
+#       any:
+#         - key: "{{ request.object.spec.pipelineRef.params[?name=='url'].value | [0] || '' }}"
+#           operator: AnyNotIn
+#           value:
+#             - https://git.example.com/platform/pipelines.git
+# and the same shape for the `namespace` param of the cluster resolver. For
+# the hub resolver, pin `catalog` and deny any request-level `url`, as the
+# policy in the Catalog guide "Constrain Catalog Pipeline Usage with Kyverno"
+# does.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: pipelinerun-source-baseline
+spec:
+  background: false
+  rules:
+    - name: approved-resolver-only
+      match:
+        any:
+          - resources:
+              kinds:
+                - tekton.dev/v1/PipelineRun
+              operations:
+                - CREATE
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - platform-connectors   # add the other platform system namespaces of your environment
+      validate:
+        failureAction: Audit
+        message: "pipelineRef must use the cluster, hub or git resolver"
+        deny:
+          conditions:
+            all:
+              - key: "{{ request.object.spec.pipelineRef.resolver || '' }}"
+                operator: AnyNotIn
+                value:
+                  - cluster
+                  - hub
+                  - git

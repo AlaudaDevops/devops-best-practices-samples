@@ -1,0 +1,40 @@
+# Series: 02 §5/§10 — OPTIONAL: Connector access for the onboarding ServiceAccount once the Connectors approval feature is on
+# Not listed in ../kustomization.yaml on purpose: an AccessPolicy is
+# accepted only while the cluster flag `enable-connectors-approval` is on,
+# and the flag is off by default, so this file belongs in the layer only
+# after the flag is on.
+# As soon as `enable-connectors-approval` is on, a CSI mount of an admin
+# Connector needs a grant like this one in addition to the RBAC of
+# ../rbac/admin-connectors.yaml.
+# Order for a platform administrator:
+#   1. turn on `enable-connectors-approval`;
+#   2. right after it, add `- optional/admin-connectors-access.yaml` to
+#      ../kustomization.yaml (the platform AppProject already allows kind
+#      AccessPolicy); run no onboarding between step 1 and step 2;
+#   3. turn on `enable-connector-proxy-permissions`.
+apiVersion: connectors.alauda.io/v1alpha1
+kind: AccessPolicy
+metadata:
+  name: project-onboarding-admin-access
+  namespace: platform-connectors
+  labels:
+    app.kubernetes.io/part-of: project-onboarding
+spec:
+  connector:
+    names:
+      - gitlab-admin
+      - harbor-admin
+      - nexus-admin
+      - sonarqube-admin
+  defaultPermission:
+    roleTemplate:
+      ref:
+        configMap:
+          name: connectors-use-connectors-proxy
+    bindingTemplate:
+      serviceAccounts:
+        - names:
+            - project-onboarding
+          namespaceSelector:
+            names:
+              - platform-connectors

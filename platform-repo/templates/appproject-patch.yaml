@@ -1,0 +1,31 @@
+# Series: 02 §6/§7/§13 — template: deployment boundary of a project as a partial AppProject (rendered by onboarding step 7)
+# A patch, not a full AppProject: the platform creates and synchronizes an
+# AppProject per platform project, so this file carries only the two fields the
+# declaration decides — the repository the project deploys from and the
+# namespaces it may deploy to. The `projects` Application applies it with
+# server-side apply, so Argo CD owns only these fields (the same pattern as the
+# partial TektonConfig in components/). render.sh writes it to
+# projects/<project>/appproject-patch.yaml with one destination per declared
+# environment; the values below are the rendered form for project `shop`.
+# On ACP, Alauda GitOps manages the AppProject named after a platform project
+# (destinations merged with all namespaces of the project); the `projects`
+# Application shows this object as OutOfSync, which is expected. Put any
+# further restriction into the policy named below, not into this patch. The
+# kinds a project may not deploy (Role, RoleBinding, ResourceQuota, LimitRange,
+# NetworkPolicy) are refused by
+# policies/argocd-project-namespace-boundary.yaml. Cluster-scoped kinds are
+# refused because the synchronized AppProject has no clusterResourceWhitelist
+# (README "Operating notes and hardening").
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: shop
+  namespace: argocd
+spec:
+  sourceRepos:
+    - https://git.example.com/shop/gitops/config.git
+  destinations:
+    - name: <cluster-name>
+      namespace: shop-test
+    - name: <cluster-name>
+      namespace: shop-prod

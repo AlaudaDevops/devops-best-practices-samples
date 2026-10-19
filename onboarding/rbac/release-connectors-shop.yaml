@@ -1,0 +1,72 @@
+# Series: 02 §14 (01 §6) — onboarding writes the promotion Connectors of project `shop` into the management namespace (step 3)
+# One file per onboarded project, added together with its ScheduledTrigger in
+# ../triggers/. harbor-staging-readonly and harbor-release write the Connectors
+# shop-registry-readonly and shop-prod-registry and their Secrets here.
+# `create` and `list` cannot be limited by name in RBAC. `create` cannot read
+# or change an existing object; `list` on Connectors returns every Connector
+# object of this namespace (not their Secrets). `get`, `update` and `patch`
+# are limited to the two Connectors and their Secrets. This does not keep the admin Secrets
+# of this namespace from the onboarding ServiceAccount: it can still mount
+# them in a PipelineRun it creates (management-namespace.yaml). The Secret
+# names follow the `<connector-name>-secret` default documented by the Tasks'
+# `secret` param (the verbs the Tasks call are listed under "Assumptions to
+# verify" in ../README.md).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: project-onboarding-release-connectors-shop
+  namespace: platform-connectors
+  labels:
+    samples.example.com/project: shop
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - shop-registry-readonly-secret
+      - shop-prod-registry-secret
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors
+    verbs:
+      - list
+      - create
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors
+    resourceNames:
+      - shop-registry-readonly
+      - shop-prod-registry
+    verbs:
+      - get
+      - update
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: project-onboarding-release-connectors-shop
+  namespace: platform-connectors
+  labels:
+    samples.example.com/project: shop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: project-onboarding-release-connectors-shop
+subjects:
+  - kind: ServiceAccount
+    name: project-onboarding
+    namespace: platform-connectors

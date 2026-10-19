@@ -1,0 +1,69 @@
+# Series: 02 §8/§9/§12 — merge-triggered onboarding: a push to main that changes projects/*.yaml onboards every changed project
+# Pipelines-as-Code runs this PipelineRun when a merge into main adds or
+# changes a project declaration projects/<project>.yaml. One file for every
+# project: the Pipeline onboard-changed-projects (onboarding/pipeline/ of this
+# sample set, deployed as the platform-onboarding Application) diffs the pushed
+# commit against its first parent, reads `name` from each changed declaration
+# and starts one project-onboarding PipelineRun onboard-<project>-* per
+# project, so adding a project needs no file here. A merge that changes no
+# declaration starts no onboarding.
+# Each onboarding run reads ConfigMap project-<project>, which the `projects`
+# Application publishes after the same merge; the Pipeline waits for that sync
+# (param sync-timeout) and fails the run for a project it could not start.
+# Re-run it after fixing the cause with a comment on the merge commit while it
+# is still the HEAD of main; otherwise start the onboarding Run Template:
+#   /test onboard-changed-projects branch:main
+# The Repository of this repository (credentials/) lives in
+# platform-connectors, so the run executes there, next to both Pipelines and
+# the admin Connectors the onboarding runs mount.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: onboard-changed-projects
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[push]"
+    pipelinesascode.tekton.dev/on-target-branch: "[main]"
+    # Path-change annotations are Technology Preview in Pipelines 4.15.
+    # The pattern names the declarations projects/<project>.yaml. `*` also
+    # matches across `/`: a merge that changes only files below
+    # projects/<project>/ (the registration of onboarding step 7) starts this
+    # run as well. That run finds no changed declaration, starts no onboarding
+    # and ends; it uses one run and one 500Mi volume.
+    pipelinesascode.tekton.dev/on-path-change: "[projects/*.yaml]"
+    pipelinesascode.tekton.dev/max-keep-runs: "5"
+spec:
+  # The Pipeline is project-local to platform-connectors, so it is referenced
+  # through the cluster resolver.
+  pipelineRef:
+    resolver: cluster
+    params:
+      - name: kind
+        value: pipeline
+      - name: name
+        value: onboard-changed-projects
+      - name: namespace
+        value: platform-connectors
+  params:
+    - name: url
+      value: "{{ repo_url }}"
+    - name: revision
+      value: "{{ revision }}"
+  # The onboarding ServiceAccount: allowed to read the declaration ConfigMaps
+  # and create PipelineRuns in platform-connectors (onboarding/rbac/).
+  taskRunTemplate:
+    serviceAccountName: project-onboarding
+  timeouts:
+    pipeline: 1h0m0s
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 500Mi
+    # Git credentials that PaC generates for this run.
+    - name: basic-auth
+      secret:
+        secretName: "{{ git_auth_secret }}"

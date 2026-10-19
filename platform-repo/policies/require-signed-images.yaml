@@ -1,0 +1,94 @@
+# Series: 02 §5 (01 §6.4, §11) — platform baseline: release images must carry a valid Chains signature (Audit)
+# Deploy-time check of the signing baseline (series 02 §5, "镜像自动签名与证明"):
+# every Pod that runs an image from the release project must be signed with the
+# platform's Chains key. As shipped (Audit) an unsigned one is reported in a
+# PolicyReport, not refused; Pods in platform-connectors are excluded. The public key is the `cosign.pub` entry of the Chains
+# `signing-secrets` Secret; paste it in place of the placeholder (it is public,
+# safe to commit). Scope: the release repositories of the declared projects
+# `shop` and `payments`. Onboarding does not edit this policy: each new
+# project's release registry project must be added here as one more
+# `imageReferences` entry, or use `registry.example.com/*-prod/*` when every
+# project follows the `<project>-prod` naming convention. Keep Audit
+# until the PolicyReports show no false positives, then set `failureAction` to
+# Enforce. Acceptance check 01§11-4 (acceptance/01-commit-to-production.sh in
+# this sample set) reads this policy by name.
+# Limits (README "Operating notes and hardening"): the rule selects Pods by
+# image reference, not by namespace, so a Pod in shop-prod that runs an image
+# from any other repository (the staging project, another registry, a host
+# alias) is never evaluated; pair it with a rule that admits only
+# registry.example.com/<project>-prod/*@sha256:* in the *-prod namespaces. A
+# valid signature and provenance prove that the image was signed with the
+# platform's Chains key (a TaskRun reported the image), not which cluster or
+# which Pipeline built or promoted it: the same key can be restored on another
+# cluster (README "Rebuild on a new cluster"), so cluster origin depends on
+# who holds the key. The optional `attestations` block below narrows mistakes;
+# it does not prove which Pipeline produced the image.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-signed-images
+spec:
+  # Signature lookups go to the registry; give them more than the default 10s.
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: verify-release-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - platform-connectors
+      verifyImages:
+        - imageReferences:
+            - "registry.example.com/shop-prod/*"
+            - "registry.example.com/payments-prod/*"
+          failureAction: Audit
+          # Audit must not mutate: Kyverno refuses mutateDigest with Audit.
+          # Manifests already pin digests (gitops-template), and verifyDigest
+          # reports any tag-only reference.
+          mutateDigest: false
+          verifyDigest: true
+          required: true
+          attestors:
+            - entries:
+                # Chains stores signatures beside each image, so no
+                # `repository` here. Only for the optional separate signature
+                # repository (storage.oci.repository), add next to keys:
+                #   repository: registry.example.com/signatures/chains
+                # Kyverno must be able to read that repository: anonymous
+                # pull on the signature project, or registry credentials
+                # configured for Kyverno.
+                - keys:
+                    publicKeys: |-
+                      <cosign-public-key-pem>
+                    # Air-gapped platforms have no public transparency log;
+                    # remove both blocks if Chains uploads to a Rekor instance
+                    # your cluster can reach.
+                    rekor:
+                      ignoreTlog: true
+                    ctlog:
+                      ignoreSCT: true
+          # Optional, not enabled: also require that the provenance names the
+          # promotion Pipeline. This narrows mistakes: a CI image carries the
+          # catalog Pipeline name, not `ci`, and fails. It does not prove that
+          # the image came from the platform's promotion Pipeline: the label
+          # is only the Pipeline's name, any namespace can run a Pipeline of
+          # that name, and the SLSA v0.2 predicate (Chains `slsa/v1`, the
+          # default) carries no namespace of the run, so the namespace cannot
+          # be asserted. The labels path below is the one of that predicate.
+          # attestations:
+          #   - type: https://slsa.dev/provenance/v0.2
+          #     attestors:
+          #       - entries:
+          #           - keys:
+          #               publicKeys: |-
+          #                 <cosign-public-key-pem>
+          #     conditions:
+          #       - all:
+          #           - key: '{{ invocation.environment.labels."tekton.dev/pipeline" }}'
+          #             operator: Equals
+          #             value: hello-promote

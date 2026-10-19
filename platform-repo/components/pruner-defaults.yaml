@@ -1,0 +1,48 @@
+# Series: 02 §5 — run cleanup: event-based Tekton Pruner defaults with namespace overrides
+# Field names and shape follow the product docs "Tekton Pruner / Quick Start"
+# and "Namespace Configuration". The job-based pruner and the event-based
+# pruner are mutually exclusive: turning this one on requires turning the old
+# one off (spec.pruner.disabled: true).
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  pruner:
+    disabled: true
+  tektonpruner:
+    disabled: false
+    global-config:
+      # The values of this block are per cluster. One sync of this layer
+      # applies them to EVERY namespace of the cluster, also to namespaces of
+      # other tenants, and the Pruner then marks the finished runs of every
+      # namespace with an annotation. Before the first sync, count the
+      # finished runs per namespace and per status, choose a limit above the
+      # highest count or agree a lower one with the tenants, and tell them.
+      #
+      # `namespace` allows an override per namespace. The product docs
+      # ("Namespace Configuration") give two forms: an entry in this block,
+      #   namespaces:
+      #     <namespace>:
+      #       historyLimit: 20
+      # or a ConfigMap named tekton-pruner-namespace-spec in the namespace
+      # itself. This sample shows the first form.
+      enforcedConfigLevel: namespace
+      # Number of finished runs to keep, counted per namespace and separately
+      # for successful and for failed runs (the job-based pruner keeps one
+      # total instead). Runs are not removed by age here: add
+      # ttlSecondsAfterFinished only with a value agreed for the cluster.
+      # Approval records (ApprovalTask status.approversResponse) go with the
+      # run: export the ApprovalTask before its run is pruned, or keep the runs
+      # of approval namespaces longer.
+      #
+      # The event-based watcher is cluster-wide at this level. With Results
+      # archiving enabled, it can add `results.tekton.dev/*` finalizers to
+      # finished PipelineRun and TaskRun objects in every watched namespace.
+      # Turning the watcher off later does not remove finalizers already left
+      # on objects, so deletion can remain blocked. Before enabling it, scope
+      # the watcher to the namespaces the platform owns (or follow the product
+      # procedure to re-enable the component and clean up the old finalizers).
+      # Keep audit history in the external Results store when the Kubernetes
+      # objects must be pruned; do not depend on those objects remaining.
+      historyLimit: 200

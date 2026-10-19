@@ -1,0 +1,101 @@
+# Series: 01 §3.3 / 02 §14 — template: `get` on the project Connectors that the CI ServiceAccount of the build namespace mounts (rendered by onboarding step 7)
+# render.sh writes it to projects/<project>/connector-mount-ci.yaml. The
+# connectors-csi driver mounts a Connector only if the Pod's ServiceAccount may
+# `get` it in the Connector's namespace; the application CI in <project>-build
+# mounts <project>/<project>-harbor (sample-app/.tekton/ci.yaml). The CI
+# PipelineRun sets no ServiceAccount, so it runs as the TektonConfig
+# `spec.pipeline.default-service-account`; that value is empty on Alauda
+# DevOps Pipelines 4.15 and the runs then use ServiceAccount `default`
+# (there is no `pipeline` ServiceAccount). If your
+# platform sets a name, change the subject here. Only `get` on the Connectors
+# named below, and no access to their Secrets. With the default feature flags
+# this `get` also lets the ServiceAccount use the Connectors proxy through that
+# Connector, which is what the mount is for (Connectors documentation,
+# "Connectors Proxy Authentication":
+# https://docs.alauda.io/alauda-devops-connectors/1.14/connectors/concepts/connectors_proxy.html#connectors-proxy-authentication).
+# The second rule covers the approval feature: once a platform administrator
+# turns on `enable-connectors-approval`, a mount needs `connectors/proxy` with
+# verb `*` on the Connector as well.
+# The values below are the rendered form for project `shop`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: shop-ci-mount
+  namespace: shop
+  labels:
+    app.kubernetes.io/part-of: shop
+rules:
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors
+    resourceNames:
+      - shop-harbor
+    verbs:
+      - get
+  # Proxy access once `enable-connectors-approval` is on: the CSI driver (and,
+  # with `enable-connector-proxy-permissions`, the proxy) checks
+  # `connectors/proxy` with verb `*`. Inert while the flag is off.
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors/proxy
+    resourceNames:
+      - shop-harbor
+    verbs:
+      - "*"
+  # SonarQube Connector of the project, the same two rules: a CI run with the
+  # scan turned on mounts <project>/<project>-sonarqube on the
+  # sonar-credentials workspace (sample-app/README.md). With
+  # `enable-connectors-approval` on, the mount needs the proxy rule.
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors
+    resourceNames:
+      - shop-sonarqube
+    verbs:
+      - get
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors/proxy
+    resourceNames:
+      - shop-sonarqube
+    verbs:
+      - "*"
+  # Nexus Connector of the project, the same two rules, for a Maven, npm or
+  # pip build that mounts <project>/<project>-nexus (sample-app/README.md).
+  # This sample has no build that mounts the Nexus Connector.
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors
+    resourceNames:
+      - shop-nexus
+    verbs:
+      - get
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors/proxy
+    resourceNames:
+      - shop-nexus
+    verbs:
+      - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: shop-ci-mount
+  namespace: shop
+  labels:
+    app.kubernetes.io/part-of: shop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: shop-ci-mount
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: shop-build

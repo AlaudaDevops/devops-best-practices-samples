@@ -1,0 +1,17 @@
+# Series: 02 §5/§6/§7 — policy layer: platform baseline ClusterPolicies (Audit first, Enforce later; the Argo CD boundary is Enforce from the start)
+# pipelinerun-source-baseline.yaml is an optional constraint, not part of the
+# baseline: remove its line below to turn it off.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - pipelinerun-source-baseline.yaml
+  - no-bare-taskrun.yaml
+  - require-signed-images.yaml
+  - onboarding-rolebinding-scope.yaml
+  # Project Applications may not deploy Role, RoleBinding, ResourceQuota,
+  # LimitRange or NetworkPolicy into project namespaces (Enforce).
+  - argocd-project-namespace-boundary.yaml
+  # Read access to RoleBindings and Roles for the Kyverno reports controller;
+  # without it onboarding-rolebinding-scope never reports, and applying
+  # argocd-project-namespace-boundary warns that Roles cannot be read.
+  - kyverno-reports-rolebindings.yaml

@@ -1,0 +1,32 @@
+# Series: 01 §3 — sample application image: multi-stage build, static binary on a minimal non-root base
+# Both base images are placeholders. Replace <tag> with a real tag and pin each
+# image by digest (registry.example.com/base/golang:<tag>@sha256:<digest>) so a
+# rebuild of the same commit uses the same bases. The build runs inside the
+# cluster from the platform's registry, so nothing is pulled from the internet.
+# The build pulls them with the credential of the project Harbor Connector
+# (shop-harbor), so they must be where that robot can pull. `base/` here
+# stands for a shared base project that every project robot can read; check
+# that the project robot can pull from it. The alternative is to keep
+# both images in the project's own Harbor project
+# (registry.example.com/shop/base/...).
+
+FROM registry.example.com/base/golang:<tag> AS build
+WORKDIR /src
+# The module has no third-party dependencies, so there is no `go mod download`
+# step and no module proxy is needed (air-gap friendly).
+COPY go.mod ./
+COPY *.go ./
+# Unit tests run in the build stage, so a failing test fails the image build
+# and therefore the CI run.
+RUN CGO_ENABLED=0 go test ./...
+# CGO off gives a static binary that runs on a base image without libc.
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/hello .
+
+FROM registry.example.com/base/static:<tag>
+COPY --from=build /out/hello /hello
+# Numeric non-root user: the workload namespaces enforce the `restricted` Pod
+# Security level, which requires runAsNonRoot and can only check a numeric UID.
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/hello"]

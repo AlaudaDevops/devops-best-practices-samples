@@ -1,0 +1,48 @@
+# Series: 02 §6/§7/§8 — project layer: one declaration per project and the boundaries onboarding registers (projects/)
+# Renders the declaration ConfigMaps into platform-connectors and, per
+# onboarded project, the files onboarding proposed by merge request
+# (projects/<project>/): Applications and the AppProject patch in argocd, the
+# owners' RoleBinding in the project namespace, the Connector-mount Roles and
+# RoleBindings in <project> and <project>-cd, the platform project. Those
+# objects carry their own namespace; Argo CD objects land in argocd of
+# <cluster-name>, so this layer assumes Argo CD manages the cluster it runs in.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: projects
+  namespace: argocd
+  annotations:
+    # Diff server-side as well: with ServerSideApply alone, kinds the API
+    # server or a webhook fills with defaults (Kyverno ClusterPolicy,
+    # Connector, Tekton Pipeline) stay OutOfSync after every successful sync
+    # and selfHeal re-syncs them in a loop.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: platform
+  source:
+    repoURL: https://git.example.com/platform/platform-config.git
+    targetRevision: main
+    path: projects
+  destination:
+    name: <cluster-name>
+    namespace: platform-connectors
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # Server-side apply keeps the AppProject patch partial: Argo CD owns
+      # only the fields in templates/appproject-patch.yaml of a
+      # platform-managed AppProject.
+      - ServerSideApply=true
+    # When the platform is rebuilt from this repository, projects/<project>/
+    # holds a RoleBinding for namespace <project>, which only exists after the
+    # onboarding run that itself waits for the declaration ConfigMaps of this
+    # Application. Retrying the failed sync lets this Application converge once
+    # onboarding has created the namespaces (rebuild order: README).
+    retry:
+      limit: -1
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 10m

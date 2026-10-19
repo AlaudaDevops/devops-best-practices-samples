@@ -1,0 +1,131 @@
+# Series: 02 §16 — project GitOps repository: pre-merge render check of every environment overlay
+# Pipelines-as-Code runs this PipelineRun on every merge request to main and
+# fails the check when any envs/<env>/ overlay does not `kustomize build`.
+# Onboarding registers the repository with pipelinerun_provenance
+# default_branch: PaC takes this file from main, not from the merge request,
+# and renders the merge request's revision with it. A change to this file
+# therefore takes effect only after it is merged.
+# Re-run it from a merge request comment, or a comment on the HEAD commit of
+# <branch>, with the command below. In a merge request comment PaC runs the
+# merge request's source branch and ignores `branch:`, so write the source
+# branch there:
+#   /test validate branch:<branch>
+#
+# Replace the render Task image below before seeding a project: it must be an
+# air-gapped image from the platform registry that contains `sh` and
+# `kubectl` (including `kubectl kustomize`). A PaC webhook and Repository are
+# also required for this pull-request trigger. With
+# `pipelinerun_provenance: default_branch`, a merge request that changes this
+# validation definition still runs the version from `main`; the new definition
+# takes effect only after that merge request is merged.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: validate
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[pull_request]"
+    pipelinesascode.tekton.dev/on-target-branch: "[main]"
+    pipelinesascode.tekton.dev/max-keep-runs: "5"
+spec:
+  # The check is written inline with two catalog Tasks, clone and render, so
+  # a seeded repository needs no Pipeline of its own in the catalog; the Tasks
+  # are still taken through the hub resolver. Where the platform's optional
+  # resolver constraint is on (policies/pipelinerun-source-baseline.yaml of
+  # the platform repository), publish these two tasks as a Pipeline in the
+  # catalog and put a hub pipelineRef here instead: that constraint does not
+  # accept an inline pipelineSpec.
+  pipelineSpec:
+    params:
+      - name: url
+        type: string
+      - name: revision
+        type: string
+      - name: paths
+        type: array
+    workspaces:
+      - name: source
+      - name: basic-auth
+    tasks:
+      - name: clone
+        taskRef:
+          resolver: hub
+          params:
+            - name: catalog
+              value: catalog
+            - name: kind
+              value: task
+            - name: name
+              value: git-clone
+            - name: version
+              value: "0.10"
+        params:
+          - name: url
+            value: $(params.url)
+          - name: revision
+            value: $(params.revision)
+        workspaces:
+          - name: output
+            workspace: source
+          - name: basic-auth
+            workspace: basic-auth
+      - name: render
+        runAfter:
+          - clone
+        taskRef:
+          resolver: hub
+          params:
+            - name: catalog
+              value: catalog
+            - name: kind
+              value: task
+            - name: name
+              value: run-script
+            - name: version
+              value: "0.1"
+        params:
+          # The image must provide sh and kubectl (for `kubectl kustomize`);
+          # replace it with the kubectl image of your catalog.
+          - name: image
+            value: registry.example.com/catalog/kubectl:<tag>
+          - name: args
+            value:
+              - $(params.paths[*])
+          - name: script
+            value: |
+              set -eu
+              # One render per path; the first path that does not build
+              # stops the Task and with it the check.
+              for p in "$@"; do
+                echo "== kubectl kustomize $p"
+                out=$(kubectl kustomize "$p")
+                n=$(printf '%s\n' "$out" | grep -c '^kind:' || true)
+                echo "ok $p ($n objects)"
+              done
+        workspaces:
+          - name: source
+            workspace: source
+  params:
+    - name: url
+      value: "{{ repo_url }}"
+    - name: revision
+      value: "{{ revision }}"
+    # Seeding replaces the envs/_* templates with one directory per environment
+    # and lists the generated directories here (for `shop`: envs/test and
+    # envs/prod).
+    - name: paths
+      value:
+        - envs/_env
+        - envs/_prod
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 500Mi
+    # Git credentials that PaC generates for this run.
+    - name: basic-auth
+      secret:
+        secretName: "{{ git_auth_secret }}"

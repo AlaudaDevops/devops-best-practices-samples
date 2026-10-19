@@ -1,0 +1,15 @@
+# Series: 02 §6 — app-of-apps entry point: the root Application points at this directory
+# Everything the root Application manages is listed here. The root Application
+# manages itself too, so after the one-time bootstrap (`kubectl apply -k argocd/apps/`)
+# a change to any file below is rolled out by a merge request, not by kubectl.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - appproject-platform.yaml
+  - root-application.yaml
+  - platform-policies.yaml
+  - platform-credentials.yaml
+  - projects.yaml
+  - platform-components.yaml
+  # Fifth Application: the onboarding/ directory (series 02 §7).
+  - platform-onboarding.yaml

@@ -1,0 +1,52 @@
+# Series: 02 §7 — platform baseline: the onboarding ServiceAccount may bind roles only in project namespaces (Audit)
+# The onboarding ServiceAccount (onboarding/ of this sample set) may create and
+# patch RoleBindings cluster-wide, because the project namespaces it binds
+# itself in do not exist before it creates them. Without this policy it could
+# bind its namespace ClusterRole (Secrets get/update) in any namespace,
+# including the management namespace with the admin Connector Secrets. This
+# policy reports (Audit) or refuses (Enforce) a RoleBinding written by that
+# ServiceAccount in a namespace without the platform project label
+# cpaas.io/project, and in the management namespace even if someone labels it.
+# The decision is anchored on request.userInfo, so background scans are off.
+# Reports need kyverno-reports-rolebindings.yaml next to this file: Kyverno's
+# reports controller cannot read RoleBindings without it.
+# Residual risk: the same ServiceAccount may label namespaces; see the
+# "Assumptions to verify" section of the onboarding README.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: onboarding-rolebinding-scope
+spec:
+  background: false
+  rules:
+    - name: only-in-project-namespaces
+      match:
+        any:
+          - resources:
+              kinds:
+                - rbac.authorization.k8s.io/v1/RoleBinding
+              operations:
+                - CREATE
+                - UPDATE
+              namespaceSelector:
+                matchExpressions:
+                  - key: cpaas.io/project
+                    operator: DoesNotExist
+          - resources:
+              kinds:
+                - rbac.authorization.k8s.io/v1/RoleBinding
+              operations:
+                - CREATE
+                - UPDATE
+              namespaces:
+                - platform-connectors
+      validate:
+        failureAction: Audit
+        message: "the onboarding ServiceAccount may create RoleBindings only in namespaces labelled cpaas.io/project, never in the management namespace"
+        deny:
+          conditions:
+            all:
+              # Replace the namespace if onboarding runs elsewhere.
+              - key: "{{ request.userInfo.username }}"
+                operator: Equals
+                value: system:serviceaccount:platform-connectors:project-onboarding

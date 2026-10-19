@@ -1,0 +1,145 @@
+# Series: 01 §5 — sample application CD to prod: Run Template that proposes a promoted digest for envs/prod through a merge request (submitMode pr)
+# Same catalog Pipeline as run-template-test.yaml, in pr mode: it pushes an
+# automatically named branch and opens a GitLab merge request against main of
+# the project GitOps repository; Argo CD syncs envs/prod to shop-prod after the
+# merge. The merge request review is a human gate only once main is protected
+# and envs/prod needs code owner approval, which onboarding does not set up
+# (gitops-template README, "Who may change main").
+# Input: the RELEASE digest, i.e. the `promoted-digest` result of a successful
+# promotion run (promotion/), filled in by hand in this sample: render the
+# template with the digest and `kubectl create` the PipelineRun. From the
+# console, as in run-template-test.yaml,
+# except: configurations `gitconfig` and `gitlabconfig` (as below); the third
+# Update Args entry is the bare digest `sha256:<64 hex>` (the update script
+# rejects anything else); `prTitle` and `prDescription` are to be filled as
+# well: fill PR Title and, under Additional Params, PR Description. It should
+# equal the CI digest; when it differs, investigate. The image repository is
+# not an input: seeding already set `newName` of envs/prod to the release
+# project `shop-prod` (template envs/_prod), so this run writes only the
+# digest. The first production deployment therefore waits for the first
+# promotion.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: hello-cd-prod
+  namespace: shop-cd
+  labels:
+    triggertemplate.triggers.tekton.dev/usage: runtime-config
+    tekton.dev/pipeline: gitops-repo-update
+    app.kubernetes.io/part-of: shop
+spec:
+  params:
+    - name: image-digest
+      description: Digest (sha256:<64 hex>) in registry.example.com/shop-prod/hello reported by the promotion run.
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: hello-cd-prod-
+        namespace: shop-cd
+        labels:
+          app.kubernetes.io/part-of: shop
+          app.kubernetes.io/component: hello
+      spec:
+        pipelineRef:
+          resolver: hub
+          params:
+            - name: catalog
+              value: catalog-pipelines
+            - name: kind
+              value: pipeline
+            - name: name
+              value: gitops-repo-update
+            - name: version
+              value: "0.1"
+        params:
+          - name: url
+            value: https://git.example.com/shop/gitops/config.git
+          - name: revision
+            value: main
+          - name: submitMode
+            value: pr
+          # Empty sourceBranch: the Pipeline generates a branch name in pr mode.
+          # Empty targetBranch would use the repository default; set it
+          # explicitly so the merge request always targets main.
+          - name: targetBranch
+            value: main
+          - name: gitCliImage
+            value: registry.example.com/catalog/git-init:<tag>
+          - name: updateScriptImage
+            value: registry.example.com/catalog/kustomize:<tag>
+          # glabImage is required in pr mode (it opens the merge request).
+          - name: glabImage
+            value: registry.example.com/catalog/glab:<tag>
+          # $1 = environment directory, $2 = release repository that seeding
+          # wrote as `newName`, $3 = the release digest.
+          - name: updateScript
+            value: |
+              set -eu
+              env_dir="envs/$1"
+              release_repo="$2"
+              digest="$3"
+              printf '%s\n' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' || {
+                echo "not a digest: $digest" >&2
+                exit 1
+              }
+              cd "$env_dir"
+              # Refuse an overlay that was not seeded for the release project or
+              # has more than one image entry: the edit below must hit exactly
+              # the one digest of the release image.
+              grep -Eq "^[[:space:]]*newName: ${release_repo}\$" kustomization.yaml || {
+                echo "envs/$1 does not pull from ${release_repo}; seed it from envs/_prod" >&2
+                exit 1
+              }
+              [ "$(grep -Ec '^[[:space:]]*digest: ' kustomization.yaml)" = "1" ] || {
+                echo "envs/$1 must have exactly one image digest" >&2
+                exit 1
+              }
+              # Change only the digest value; newName, comments and layout stay
+              # as seeded (`kustomize edit set image` would rewrite the file).
+              sed -i "s|^\([[:space:]]*digest: \).*|\1${digest}|" kustomization.yaml
+              kustomize build . | grep -q "image: ${release_repo}@${digest}"
+          - name: updateArgs
+            value:
+              - prod
+              - registry.example.com/shop-prod/hello
+              - $(tt.params.image-digest)
+          - name: commitMessage
+            value: "chore(prod): promote hello $(tt.params.image-digest)"
+          - name: prTitle
+            value: "chore(prod): promote hello $(tt.params.image-digest)"
+          - name: prDescription
+            value: |
+              Automated promotion of hello to prod.
+              Image: registry.example.com/shop-prod/hello@$(tt.params.image-digest)
+          - name: gitUserName
+            value: shop-delivery-bot
+          - name: gitUserEmail
+            value: shop-delivery-bot@example.com
+        workspaces:
+          # A fresh volume per run. Do not bind a shared PVC: two runs at the
+          # same time must never share a checkout.
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 500Mi
+          # pr mode also calls the GitLab API, which needs token-based
+          # credentials (not username/password): mount both the git
+          # configuration and the GitLab CLI configuration of the Connector
+          # shop-gitops-writer (onboarding step 2, gitlab-gitops-writer). Its
+          # Secret lives in shop-cd, where this run executes, so anyone who can
+          # create a Pod in shop-cd can mount it without proxy or approval
+          # (README "Operating notes and hardening").
+          - name: git-auth
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connectors: shop-cd/shop-gitops-writer
+                configuration.names: gitconfig,gitlabconfig
+        taskRunTemplate:
+          serviceAccountName: shop-delivery

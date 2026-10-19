@@ -1,0 +1,59 @@
+# Series: 01 §5 / 02 §14 — template: `get` on the GitOps writer Connector for the delivery identity (rendered by onboarding step 7)
+# render.sh writes it to projects/<project>/connector-mount-delivery.yaml. The
+# connectors-csi driver mounts a Connector only if the Pod's ServiceAccount may
+# `get` it in the Connector's namespace; the CD Run Templates run as
+# <project>-delivery in <project>-cd and mount
+# <project>-cd/<project>-gitops-writer (sample-app/cd/run-template-*.yaml).
+# Onboarding step 1 creates the ServiceAccount, step 2 the Connector. Only
+# `get` on that one Connector, and no access to its Secret. With the default
+# feature flags this `get` also lets the ServiceAccount use the Connectors
+# proxy through that Connector, which is what the mount is for (Connectors
+# documentation, "Connectors Proxy Authentication":
+# https://docs.alauda.io/alauda-devops-connectors/1.14/connectors/concepts/connectors_proxy.html#connectors-proxy-authentication).
+# The second rule covers the approval feature: once a platform administrator
+# turns on `enable-connectors-approval`, a mount needs `connectors/proxy` with
+# verb `*` on the Connector as well.
+# The values below are the rendered form for project `shop`.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: shop-delivery-mount
+  namespace: shop-cd
+  labels:
+    app.kubernetes.io/part-of: shop
+rules:
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors
+    resourceNames:
+      - shop-gitops-writer
+    verbs:
+      - get
+  # Proxy access once `enable-connectors-approval` is on: the CSI driver (and,
+  # with `enable-connector-proxy-permissions`, the proxy) checks
+  # `connectors/proxy` with verb `*`. Inert while the flag is off.
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors/proxy
+    resourceNames:
+      - shop-gitops-writer
+    verbs:
+      - "*"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: shop-delivery-mount
+  namespace: shop-cd
+  labels:
+    app.kubernetes.io/part-of: shop
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: shop-delivery-mount
+subjects:
+  - kind: ServiceAccount
+    name: shop-delivery
+    namespace: shop-cd

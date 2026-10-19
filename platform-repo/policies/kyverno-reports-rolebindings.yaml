@@ -1,0 +1,28 @@
+# Series: 02 §7 — lets the Kyverno reports controller read RoleBindings and Roles, so the policies that match them can report at all
+# onboarding-rolebinding-scope.yaml matches RoleBindings. The reports
+# controller of the Kyverno shipped with ACP (1.15.9) has no rule for
+# RoleBindings, so it cannot start its watcher ("rolebindings ... is
+# forbidden") and the Audit policy never produces a PolicyReport; the admission
+# dry run warns about the same missing permission. The label aggregates this
+# rule into the controller's ClusterRole `kyverno:reports-controller`;
+# PolicyReports appear once it exists.
+# argocd-project-namespace-boundary.yaml also matches Roles; without `roles`
+# here applying it warns that the reports controller "requires permissions
+# get,list,watch for resource rbac.authorization.k8s.io/v1/Role".
+# Read-only; remove a resource if your Kyverno already grants it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kyverno-reports-rolebindings
+  labels:
+    rbac.kyverno.io/aggregate-to-reports-controller: "true"
+rules:
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - rolebindings
+      - roles
+    verbs:
+      - get
+      - list
+      - watch

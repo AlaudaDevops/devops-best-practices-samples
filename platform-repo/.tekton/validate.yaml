@@ -1,0 +1,134 @@
+# Series: 02 §6/§7 — pre-merge validation: `kustomize build` every directory an Application points at
+# Pipelines-as-Code runs this PipelineRun on every merge request to main. A
+# directory that does not render makes its whole Argo CD Application stop with
+# "failed to generate manifest", minutes after the merge and far from the
+# commit; rendering here moves that failure onto the merge request.
+# Re-run it from a merge request comment, or a comment on the HEAD commit of
+# <branch>, with the command below. In a merge request comment PaC runs the
+# merge request's source branch and ignores `branch:`, so write the source
+# branch there:
+#   /test validate branch:<branch>
+#
+# Replace the render Task image below before using this check: it must be an
+# air-gapped image from the platform registry that contains `sh` and
+# `kubectl` (including `kubectl kustomize`). A PaC webhook and Repository are
+# also required for the pull-request trigger. Because the platform Repository
+# uses `pipelinerun_provenance: default_branch`, a merge request that changes
+# this validation definition still runs the version from `main`; the new
+# definition takes effect only after that merge request is merged.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: validate
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[pull_request]"
+    pipelinesascode.tekton.dev/on-target-branch: "[main]"
+    pipelinesascode.tekton.dev/max-keep-runs: "5"
+spec:
+  # The check is written inline with two catalog Tasks, clone and render, so
+  # the repository needs no Pipeline of its own in the catalog; the Tasks are
+  # still taken through the hub resolver. The optional resolver constraint
+  # (policies/pipelinerun-source-baseline.yaml, series 02 §5.1) does not
+  # accept an inline pipelineSpec. As this sample ships the policy, it
+  # excludes platform-connectors, where the runs of this file execute, so it
+  # does not judge them. If you extend the constraint to that namespace,
+  # publish these two tasks as a Pipeline in the catalog and put a hub
+  # pipelineRef here instead.
+  pipelineSpec:
+    params:
+      - name: url
+        type: string
+      - name: revision
+        type: string
+      - name: paths
+        type: array
+    workspaces:
+      - name: source
+      - name: basic-auth
+    tasks:
+      - name: clone
+        taskRef:
+          resolver: hub
+          params:
+            - name: catalog
+              value: catalog
+            - name: kind
+              value: task
+            - name: name
+              value: git-clone
+            - name: version
+              value: "0.10"
+        params:
+          - name: url
+            value: $(params.url)
+          - name: revision
+            value: $(params.revision)
+        workspaces:
+          - name: output
+            workspace: source
+          - name: basic-auth
+            workspace: basic-auth
+      - name: render
+        runAfter:
+          - clone
+        taskRef:
+          resolver: hub
+          params:
+            - name: catalog
+              value: catalog
+            - name: kind
+              value: task
+            - name: name
+              value: run-script
+            - name: version
+              value: "0.1"
+        params:
+          # The image must provide sh and kubectl (for `kubectl kustomize`);
+          # replace it with the kubectl image of your catalog.
+          - name: image
+            value: registry.example.com/catalog/kubectl:<tag>
+          - name: args
+            value:
+              - $(params.paths[*])
+          - name: script
+            value: |
+              set -eu
+              # One render per path; the first path that does not build
+              # stops the Task and with it the check.
+              for p in "$@"; do
+                echo "== kubectl kustomize $p"
+                out=$(kubectl kustomize "$p")
+                n=$(printf '%s\n' "$out" | grep -c '^kind:' || true)
+                echo "ok $p ($n objects)"
+              done
+        workspaces:
+          - name: source
+            workspace: source
+  params:
+    - name: url
+      value: "{{ repo_url }}"
+    - name: revision
+      value: "{{ revision }}"
+    # Every directory that an Argo CD Application renders; onboarding is the
+    # onboarding/ directory of this sample set copied into this repository.
+    - name: paths
+      value:
+        - argocd/apps
+        - components
+        - policies
+        - credentials
+        - projects
+        - onboarding
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 500Mi
+    # Git credentials that PaC generates for this run.
+    - name: basic-auth
+      secret:
+        secretName: "{{ git_auth_secret }}"

@@ -1,0 +1,34 @@
+# Series: 02 §12 — scheduled reconciliation and credential rotation run for project `payments`
+# One file per onboarded project. Every third day the same PipelineRun as a
+# manual onboarding is rendered from the Run Template: the four Connectors
+# Tasks re-mint the long-lived tool credentials (GitLab group token, Harbor
+# robot token, Nexus user password, SonarQube token) and write them back to
+# the project Connector Secrets; everything else is reconciled with no change.
+# Keep the interval shorter than the validity of the GitLab and SonarQube
+# tokens. `token-duration` (30 days) is the validity of the tokens that the
+# first run creates; a group token rotated by a re-run is valid for 7 days.
+# Keep the interval so far below 7 days that one missed run does no harm. The
+# pipeline sets no validity for the Harbor and Nexus credentials, rotate those
+# as your security policy requires, and schedule it when the project's
+# pipelines are idle (series 02 §12).
+apiVersion: tekton.alaudadevops.io/v1alpha1
+kind: ScheduledTrigger
+metadata:
+  name: project-onboarding-payments
+  namespace: platform-connectors
+  labels:
+    tekton.dev/pipeline: project-onboarding
+    samples.example.com/project: payments
+spec:
+  # Every third day, one hour after shop, so the scheduled runs of two
+  # projects do not rotate credentials through the same admin Connectors at
+  # the same time. Three days, not seven: after a re-run the GitLab tokens are
+  # valid for 7 days, so a weekly run leaves no margin; with three days one
+  # missed run does no harm.
+  schedule: "0 3 */3 * *"
+  timeZone: Etc/UTC
+  params:
+    - name: project
+      value: payments
+  triggerTemplate:
+    ref: project-onboarding

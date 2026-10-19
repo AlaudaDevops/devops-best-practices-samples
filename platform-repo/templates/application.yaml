@@ -1,0 +1,30 @@
+# Series: 02 §7/§9/§13 — template: one Argo CD Application per environment of a project (rendered by onboarding step 7)
+# render.sh (next to this file) turns it into projects/<project>/application-<env>.yaml
+# once per declared environment; onboarding proposes the result to this
+# repository through a merge request, it never applies it directly. The values
+# below are the rendered form for project `shop`, environment `test`; render.sh
+# sets metadata.name, the part-of label, spec.project, repoURL (always with
+# `.git`: GitLab answers the URL without it with a 301 redirect, which Argo CD
+# does not follow), path,
+# destination.name and destination.namespace with yq and keeps everything else
+# as written here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: shop-test
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: shop
+spec:
+  project: shop
+  source:
+    repoURL: https://git.example.com/shop/gitops/config.git
+    targetRevision: main
+    path: envs/test
+  destination:
+    name: <cluster-name>
+    namespace: shop-test
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

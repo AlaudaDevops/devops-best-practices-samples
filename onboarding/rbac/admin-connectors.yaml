@@ -1,0 +1,41 @@
+# Series: 02 §5/§10 — use of the four admin-level Connectors through the Connectors CSI Driver and proxy (steps 2–7)
+# The Connectors proxy accepts the Pod's ServiceAccount token when it can read
+# the target Connector; both rules are limited to the four admin Connectors
+# by name. Once the feature flag enable-connectors-approval is on, the CSI
+# driver (and, with enable-connector-proxy-permissions, the proxy) checks
+# connectors/proxy with verb `*`; the `get` below does not satisfy it, so from
+# that moment the mounts need the AccessPolicy of
+# ../optional/admin-connectors-access.yaml. The Connectors live in the
+# namespace the pipeline runs in, so no cross-namespace mounting is involved.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: project-onboarding-admin-connectors
+  namespace: platform-connectors
+rules:
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - connectors
+      - connectors/proxy
+    resourceNames:
+      - gitlab-admin
+      - harbor-admin
+      - nexus-admin
+      - sonarqube-admin
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: project-onboarding-admin-connectors
+  namespace: platform-connectors
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: project-onboarding-admin-connectors
+subjects:
+  - kind: ServiceAccount
+    name: project-onboarding
+    namespace: platform-connectors

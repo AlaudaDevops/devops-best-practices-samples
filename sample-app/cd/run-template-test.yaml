@@ -1,0 +1,135 @@
+# Series: 01 §5 — sample application CD to test: Run Template that writes a built digest into envs/test of the project GitOps repository (submitMode direct)
+# A Run Template (a TriggerTemplate labelled `runtime-config`) for the catalog
+# Pipeline gitops-repo-update 0.1. It commits straight to main of the project
+# GitOps repository; Argo CD then syncs envs/test to namespace shop-test.
+# In this sample it is started by hand with the `IMAGE_DIGEST` result of a
+# successful CI run on main (.tekton/ci.yaml; merge request runs push only to
+# the scratch repository hello-mr). Starting it from a Harbor PUSH_ARTIFACT
+# event is the reference practice of series 01 §6.3 and is not part of this
+# sample.
+# Two ways to start it by hand:
+#   - take the PipelineRun from `resourcetemplates`, replace
+#     `$(tt.params.image-digest)` with the digest and `kubectl create` it;
+#   - from the console (Run Template, Run): switch Integrations off; fill
+#     Repository URL and Revision (`main`); mount workspace `git-auth` as
+#     Connector `shop-gitops-writer`, configuration `gitconfig`, and type a
+#     Token Duration; remove the empty third Update Args entry, then add the
+#     full reference `registry.example.com/shop/hello@sha256:<digest>` (the
+#     update script rejects anything else); fill Commit Message. The run is
+#     named after the Pipeline (`gitops-repo-update-*`) and carries no label of
+#     this template.
+# A Trigger or ScheduledTrigger fills the parameter.
+# Only the digest is set at run time; repository, environment and image name
+# are fixed here, so a run started from this template cannot write another
+# environment. Restrict who may create PipelineRuns in shop-cd
+# (sample-app/README.md, "Operating notes and hardening").
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: hello-cd-test
+  namespace: shop-cd
+  labels:
+    triggertemplate.triggers.tekton.dev/usage: runtime-config
+    tekton.dev/pipeline: gitops-repo-update
+    app.kubernetes.io/part-of: shop
+spec:
+  params:
+    - name: image-digest
+      description: Digest (sha256:<64 hex>) of the image built by CI in registry.example.com/shop/hello.
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: hello-cd-test-
+        namespace: shop-cd
+        labels:
+          app.kubernetes.io/part-of: shop
+          app.kubernetes.io/component: hello
+      spec:
+        # Resolver form, so the run passes the platform's optional resolver
+        # constraint when it is enabled.
+        pipelineRef:
+          resolver: hub
+          params:
+            - name: catalog
+              value: catalog-pipelines
+            - name: kind
+              value: pipeline
+            - name: name
+              value: gitops-repo-update
+            - name: version
+              value: "0.1"
+        params:
+          - name: url
+            value: https://git.example.com/shop/gitops/config.git
+          - name: revision
+            value: main
+          - name: submitMode
+            value: direct
+          # Tool images from the platform registry (placeholders); the update
+          # image must contain `kustomize` and, for accurate change detection,
+          # `git`.
+          - name: gitCliImage
+            value: registry.example.com/catalog/git-init:<tag>
+          - name: updateScriptImage
+            value: registry.example.com/catalog/kustomize:<tag>
+          # $1 = environment directory, $2 = image name used in base/,
+          # $3 = new reference repository@sha256:<digest>.
+          - name: updateScript
+            value: |
+              set -eu
+              env_dir="envs/$1"
+              image_name="$2"
+              new_ref="$3"
+              # Refuse anything that is not repository@sha256:<64 hex>: a tag or
+              # an empty digest must never reach an environment.
+              printf '%s\n' "$new_ref" | grep -Eq '^[^@[:space:]]+@sha256:[0-9a-f]{64}$' || {
+                echo "not a digest reference: $new_ref" >&2
+                exit 1
+              }
+              cd "$env_dir"
+              # Rewrites the `images` entry named "$image_name" in this overlay:
+              # digest and newName. kustomize re-serializes the whole file, so
+              # the first commit on a seeded overlay also changes its layout
+              # (list indentation, key order, place of the comment), so its
+              # diff is larger than the one digest line.
+              kustomize edit set image "${image_name}=${new_ref}"
+              # Fail when the overlay has no images entry named "$image_name":
+              # kustomize would add one and the Deployment would keep the old
+              # digest while the run reports a change.
+              kustomize build . | grep -q "image: ${new_ref}"
+          - name: updateArgs
+            value:
+              - test
+              - registry.example.com/shop/hello
+              - registry.example.com/shop/hello@$(tt.params.image-digest)
+          - name: commitMessage
+            value: "chore(test): deploy hello $(tt.params.image-digest)"
+          - name: gitUserName
+            value: shop-delivery-bot
+          - name: gitUserEmail
+            value: shop-delivery-bot@example.com
+        workspaces:
+          # A fresh volume per run. Do not bind a shared PVC: two runs at the
+          # same time must never share a checkout.
+          - name: source
+            volumeClaimTemplate:
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 500Mi
+          # .gitconfig + .git-credentials with push access to shop/gitops/config,
+          # from the GitLab Connector shop-gitops-writer that onboarding step 2
+          # (gitlab-gitops-writer) writes into shop-cd, the namespace this run
+          # executes in (README "Operating notes and hardening").
+          - name: git-auth
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connectors: shop-cd/shop-gitops-writer
+                configuration.names: gitconfig
+        taskRunTemplate:
+          serviceAccountName: shop-delivery

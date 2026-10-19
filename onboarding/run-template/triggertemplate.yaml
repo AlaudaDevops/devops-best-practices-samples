@@ -1,0 +1,88 @@
+# Series: 02 §9/§12 — console Run Template: renders one onboarding PipelineRun for a project
+# The console stores a Run Template as a TriggerTemplate labelled
+# triggertemplate.triggers.tekton.dev/usage: runtime-config. `project` is the
+# only parameter a user supplies; everything else is fixed here or defaulted in
+# the Pipeline. Before the first run, replace the placeholder defaults of
+# ../pipeline/project-onboarding.yaml with the values of your environment (the
+# tool addresses, the two repository URLs, `platform-project-resource`,
+# `argocd-cluster` and the three tool images; README.md, "Replacement
+# points"): a run started from this template gets nothing but `project`.
+# The same template is referenced by every per-project
+# ScheduledTrigger in ../triggers/, so a manual run and the scheduled
+# reconciliation run are the same PipelineRun.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: project-onboarding
+  namespace: platform-connectors
+  labels:
+    triggertemplate.triggers.tekton.dev/usage: runtime-config
+    tekton.dev/pipeline: project-onboarding
+  annotations:
+    tekton.dev/displayName: Onboard a project
+spec:
+  params:
+    - name: project
+      description: Project to onboard; ConfigMap project-<project> must exist in platform-connectors.
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: project-onboarding-$(tt.params.project)-
+        labels:
+          samples.example.com/project: $(tt.params.project)
+      spec:
+        # The Pipeline lives in this namespace (../pipeline/); the cluster
+        # resolver keeps the reference in resolver form.
+        pipelineRef:
+          resolver: cluster
+          params:
+            - name: kind
+              value: pipeline
+            - name: name
+              value: project-onboarding
+            - name: namespace
+              value: platform-connectors
+        params:
+          - name: project
+            value: $(tt.params.project)
+        taskRunTemplate:
+          serviceAccountName: project-onboarding
+        timeouts:
+          pipeline: 1h0m0s
+        # Admin-level Connectors of this (management) namespace, mounted through
+        # the Connectors CSI Driver. The Pod receives a short-lived proxy token,
+        # never the admin credential itself.
+        # token.expiration 45m: longer than the 30m timeout of each onboarding Task (CSI default 30m).
+        workspaces:
+          - name: gitlab-admin
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connectors: platform-connectors/gitlab-admin
+                configuration.names: gitlabconfig,gitconfig
+                token.expiration: 45m
+          - name: harbor-admin
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connectors: platform-connectors/harbor-admin
+                configuration.names: harbor-cli-config
+                token.expiration: 45m
+          - name: nexus-admin
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connectors: platform-connectors/nexus-admin
+                token.expiration: 45m
+          - name: sonarqube-admin
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connectors: platform-connectors/sonarqube-admin
+                configuration.names: sonar-scanner
+                token.expiration: 45m

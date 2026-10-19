@@ -1,0 +1,170 @@
+# Series: 01 §6 — sample application promotion: validate digest -> wait for approval -> copy the image by digest into the release project
+# Project-local Pipeline in the delivery namespace shop-cd, following the CD
+# Pipeline of the Alauda DevOps delivery tutorial with one deliberate change:
+# the tutorial ends with a `deploy` task (catalog workload-apply 0.1) that
+# updates the Deployment directly. In this sample production is deployed
+# through GitOps, so this Pipeline ends after `promote-image`; its
+# `promoted-digest` result is the input of cd/run-template-prod.yaml, which
+# opens the merge request against envs/prod (submitMode pr).
+# A signature or scan check, if your policy requires one, goes between
+# validate-digest and wait-for-approval so approvers see a verified digest
+# (see chains/).
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: hello-promote
+  namespace: shop-cd
+  labels:
+    app.kubernetes.io/part-of: shop
+spec:
+  params:
+    - name: imageMappings
+      type: array
+      description: The staging image by digest and the release tag to create ("docker://SRC docker://DST"), first; optionally followed by its cosign .sig / .att tags, same tag on both sides (default Chains storage).
+    - name: source-repository
+      type: string
+      description: Staging repository the mapping's source must belong to; fixed by the Run Template.
+    - name: target-repository
+      type: string
+      description: Release repository without tag or digest; fixed by the Run Template.
+    - name: release-label
+      type: string
+      description: Release tag to create in the release repository; must be fresh on every run.
+  workspaces:
+    - name: source-registry-config
+    - name: destination-registry-config
+    - name: src-ca-bundle
+      optional: true
+    - name: dst-ca-bundle
+      optional: true
+  tasks:
+    # Reject a mapping whose source is not the fixed staging repository pinned
+    # by digest, or whose destination is not the fixed release repository with
+    # this run's label, and any extra mapping other than the same digest's
+    # .sig / .att tags, BEFORE anyone is asked to approve.
+    - name: validate-digest
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: run-script
+          - name: version
+            value: "0.1"
+      params:
+        # The image must provide sh, grep -E and printf.
+        - name: image
+          value: registry.example.com/catalog/run-script:<tag>
+        - name: script
+          value: |
+            set -eu
+            # Inputs: source repository, target repository, release label,
+            # then the image mappings: the image first, optionally followed by
+            # its cosign .sig / .att tags (default Chains storage).
+            [ "$#" -ge 4 ] || exit 1
+            case "$1$2$3" in *[[:space:]]*) exit 1 ;; esac
+            printf "%s\n" "$3" | grep -Eq "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
+            # Split "docker://SRC docker://DST" and pin both ends.
+            src="${4%% *}"
+            dst="${4#* }"
+            case "$src" in "docker://$1@sha256:"*) ;; *) exit 1 ;; esac
+            printf "%s\n" "$src" | grep -Eq "^docker://[^@[:space:]]+@sha256:[0-9a-f]{64}$"
+            [ "$dst" = "docker://$2:$3" ] || exit 1
+            # Extra mappings may only copy the .sig / .att tag of this same
+            # digest to the same tag in the release repository; any other
+            # digest, tag or repository, or a second image, is rejected.
+            tag="sha256-${src##*@sha256:}"
+            src_repo="$1"
+            dst_repo="$2"
+            shift 4
+            for m in "$@"; do
+              case "$m" in
+                "docker://$src_repo:$tag.sig docker://$dst_repo:$tag.sig") ;;
+                "docker://$src_repo:$tag.att docker://$dst_repo:$tag.att") ;;
+                *) exit 1 ;;
+              esac
+            done
+        - name: args
+          value:
+            - $(params.source-repository)
+            - $(params.target-repository)
+            - $(params.release-label)
+            - $(params.imageMappings[*])
+    # Manual Approval Gate. Reference a group, never an individual; the value is
+    # the group's canonical identifier in the identity provider, not its display
+    # name. This list and `approvers` in access-policy.yaml are what take
+    # effect; `approvers.prod` of the project declaration is only the reviewed
+    # record. Keep all three identical by hand: nothing checks them (README
+    # "Operating notes and hardening").
+    - name: wait-for-approval
+      runAfter:
+        - validate-digest
+      taskRef:
+        apiVersion: openshift-pipelines.org/v1alpha1
+        kind: ApprovalTask
+      timeout: 24h
+      params:
+        - name: approvers
+          value:
+            - group:release-managers
+        - name: numberOfApprovalsRequired
+          value: "1"
+        - name: description
+          value: Approve promotion of $(params.source-repository) (digest in the run parameters) to $(params.target-repository):$(params.release-label).
+    # Copy by digest; no rebuild. imageMappings form, the form the promotion
+    # admission guardrails read from the PipelineRun parameters.
+    - name: promote-image
+      runAfter:
+        - wait-for-approval
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: skopeo-copy
+          - name: version
+            value: "0.1"
+      params:
+        - name: imageMappings
+          value:
+            - $(params.imageMappings[*])
+        - name: srcTLSVerify
+          value: "true"
+        - name: dstTLSVerify
+          value: "true"
+        # The image is the first mapping (validate-digest): stop on the first
+        # failure so dst-IMAGE_DIGEST (first destination),
+        # when captured, describes the image this run was approved for.
+        # cd/run-template-prod.yaml accepts only a value of the form sha256:<64
+        # hex>: read `promoted-digest` before you start it.
+        - name: continueOnError
+          value: "false"
+        - name: skopeoImage
+          value: registry.example.com/catalog/skopeo:<tag>
+      workspaces:
+        - name: src-registry-config
+          workspace: source-registry-config
+        - name: dst-registry-config
+          workspace: destination-registry-config
+        - name: src-ca-bundle
+          workspace: src-ca-bundle
+        - name: dst-ca-bundle
+          workspace: dst-ca-bundle
+  results:
+    # The destination digest is authoritative. skopeo copies by digest without
+    # converting the manifest, so it should equal the source digest; when it
+    # differs, investigate before deploying (manifest conversion by the
+    # registry or the copy). Pipeline results here are plain task-result
+    # references: Tekton v1.12 refuses a result that mixes in a parameter
+    # (such as repository@digest), so the release reference is built by the
+    # reader from target-repository and promoted-digest.
+    - name: promoted-digest
+      value: $(tasks.promote-image.results.dst-IMAGE_DIGEST)
+    - name: promoted-images
+      value: $(tasks.promote-image.results.IMAGES)

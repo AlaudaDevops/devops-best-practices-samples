@@ -1,0 +1,118 @@
+# Series: 01 §6 — sample application promotion: Run Template that fixes repositories, Connectors and identity; only digest and release label are set at run time
+# Start it by hand with the digest of a successful CI run (or, after a
+# promotion is approved and done, look for `promoted-digest`). Reference
+# way: render the template with the digest and the
+# release label and `kubectl create` the PipelineRun. From the console, write
+# the full mapping
+# `docker://<staging repository>@sha256:<digest> docker://<release repository>:<label>`
+# and the label in the run form, and type a Token Duration for each of the four
+# Connector workspaces.
+# The repositories are fixed here and re-checked by validate-digest, so a run
+# started from this template cannot promote an image from any other
+# repository. validate-digest compares against the parameters it is given, so a
+# PipelineRun of this Pipeline written by hand in shop-cd can pass other
+# repositories (it still waits for approval); until promotion guardrails 1-3
+# are deployed nothing requires runs to come from this template
+# (sample-app/README.md, "Operating notes and hardening").
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerTemplate
+metadata:
+  name: hello-promote-run
+  namespace: shop-cd
+  labels:
+    triggertemplate.triggers.tekton.dev/usage: runtime-config
+    tekton.dev/pipeline: hello-promote
+    app.kubernetes.io/part-of: shop
+spec:
+  params:
+    - name: image-digest
+      description: Digest (sha256:<64 hex>) of a successful CI build in registry.example.com/shop/hello.
+    # Empty on purpose: validate-digest rejects an empty label, so a forgotten
+    # label cannot overwrite an earlier release tag.
+    - name: release-label
+      description: Release tag to create in registry.example.com/shop-prod/hello; supply a fresh value on every run.
+      default: ""
+  resourcetemplates:
+    - apiVersion: tekton.dev/v1
+      kind: PipelineRun
+      metadata:
+        generateName: hello-promote-run-
+        namespace: shop-cd
+        labels:
+          app.kubernetes.io/part-of: shop
+          app.kubernetes.io/component: hello
+      spec:
+        # The Pipeline is project-local, so it is referenced through the cluster
+        # resolver: the platform's optional resolver constraint, when enabled,
+        # audits any PipelineRun whose pipelineRef does not use the cluster,
+        # hub or git resolver.
+        pipelineRef:
+          resolver: cluster
+          params:
+            - name: kind
+              value: pipeline
+            - name: name
+              value: hello-promote
+            - name: namespace
+              value: shop-cd
+        params:
+          - name: imageMappings
+            value:
+              - docker://registry.example.com/shop/hello@$(tt.params.image-digest) docker://registry.example.com/shop-prod/hello:$(tt.params.release-label)
+          - name: source-repository
+            value: registry.example.com/shop/hello
+          - name: target-repository
+            value: registry.example.com/shop-prod/hello
+          - name: release-label
+            value: $(tt.params.release-label)
+        workspaces:
+          # Read-only Connector for the staging project `shop`, written by
+          # onboarding step 3 (harbor-staging-readonly) into the management
+          # namespace; it also supplies the proxy CA for src-ca-bundle. A run
+          # without this workspace is outside what this sample covers.
+          - name: source-registry-config
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connectors: platform-connectors/shop-registry-readonly
+                configuration.names: registry-config
+          # Push Connector for the release project `shop-prod`, written by
+          # onboarding step 3 (harbor-release). With the approval flags on and
+          # access-policy.yaml applied, proxy access to it is granted only to
+          # the Pods of an approved promotion run; in this template that is the
+          # promote-image Pod (README.md, "Operating notes and hardening").
+          - name: destination-registry-config
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connectors: platform-connectors/shop-prod-registry
+                configuration.names: registry-config
+          # Both registry-config mounts route skopeo through the Connectors
+          # proxy, which re-signs TLS with its own CA, so both sides need the
+          # proxy CA, also when the registry has a public certificate (bind
+          # src-ca-bundle as well as dst-ca-bundle). `!ca.cert` makes skopeo
+          # read the mount's ca.crt, not the deprecated ca.cert alias.
+          - name: src-ca-bundle
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connectors: platform-connectors/shop-registry-readonly
+                configuration.names: registry-config,!ca.cert
+          - name: dst-ca-bundle
+            csi:
+              driver: connectors-csi
+              readOnly: true
+              volumeAttributes:
+                connectors: platform-connectors/shop-prod-registry
+                configuration.names: registry-config,!ca.cert
+        taskRunTemplate:
+          serviceAccountName: shop-release
+        # Covers validate-digest before the approval, the approval task's full
+        # 24h timeout, and the copy after it: both timeouts count from the start
+        # of the first task.
+        timeouts:
+          pipeline: 25h
+          tasks: 25h

@@ -1,0 +1,51 @@
+# Series: 02 §5.1 — platform baseline: no bare TaskRun / CustomRun outside a PipelineRun (Audit)
+# A TaskRun or CustomRun created by anyone other than the Tekton controller is a
+# "bare" run that escapes checks that only match PipelineRuns, such as the
+# optional resolver constraint (pipelinerun-source-baseline.yaml). The decision is
+# anchored on request.userInfo (who sent the request), not on ownerReferences,
+# because owner references are written by the client and can be forged.
+# Every platform automation identity added to the allow list below opens a bare
+# run entrance for that identity; review its RBAC together with this list.
+# As shipped the policy is Audit: bare runs are reported in PolicyReports, not
+# refused, until failureAction is set to Enforce. The management namespace
+# platform-connectors is excluded, so bare runs there are neither reported nor
+# refused.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: no-bare-taskrun
+spec:
+  # request.userInfo only exists at admission time, so background scans must be
+  # off; Kyverno rejects userInfo-based rules that run in background mode.
+  background: false
+  rules:
+    - name: taskrun-only-from-tekton-controller
+      match:
+        any:
+          - resources:
+              kinds:
+                - tekton.dev/v1/TaskRun
+                - tekton.dev/v1beta1/CustomRun
+              operations:
+                - CREATE
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - platform-connectors
+      validate:
+        failureAction: Audit
+        message: "TaskRun and CustomRun may only be created by the Tekton controller as part of a PipelineRun"
+        deny:
+          conditions:
+            all:
+              - key: "{{ request.userInfo.username }}"
+                operator: AnyNotIn
+                value:
+                  # Replace the namespace if Tekton Pipelines is installed elsewhere.
+                  - system:serviceaccount:tekton-pipelines:tekton-pipelines-controller
+                  # If another trusted component creates TaskRuns, add its ServiceAccount
+                  # to the narrow exclusion. Runs created for a PipelineRun, including the
+                  # CustomRun of a Manual Approval Gate ApprovalTask, come from the Tekton
+                  # controller above and need no entry.
+                  # - system:serviceaccount:<namespace>:<serviceaccount>

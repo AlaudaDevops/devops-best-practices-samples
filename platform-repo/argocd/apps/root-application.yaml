@@ -1,0 +1,28 @@
+# Series: 02 §6 — root Application (app of apps): manages every Application in this directory
+# Create it once with `kubectl apply -k argocd/apps/`; afterwards the repository owns it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-root
+  namespace: argocd
+  annotations:
+    # Diff server-side as well: with ServerSideApply alone, kinds the API
+    # server or a webhook fills with defaults (Kyverno ClusterPolicy,
+    # Connector, Tekton Pipeline) stay OutOfSync after every successful sync
+    # and selfHeal re-syncs them in a loop.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: platform
+  source:
+    repoURL: https://git.example.com/platform/platform-config.git
+    targetRevision: main
+    path: argocd/apps
+  destination:
+    name: <cluster-name>
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

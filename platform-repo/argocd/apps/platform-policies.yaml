@@ -1,0 +1,27 @@
+# Series: 02 §5/§6/§7 — policy layer: platform baseline ClusterPolicies (policies/)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-policies
+  namespace: argocd
+  annotations:
+    # Diff server-side as well: with ServerSideApply alone, kinds the API
+    # server or a webhook fills with defaults (Kyverno ClusterPolicy,
+    # Connector, Tekton Pipeline) stay OutOfSync after every successful sync
+    # and selfHeal re-syncs them in a loop.
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+spec:
+  project: platform
+  source:
+    repoURL: https://git.example.com/platform/platform-config.git
+    targetRevision: main
+    path: policies
+  destination:
+    # Cluster-scoped objects only, so no destination namespace.
+    name: <cluster-name>
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

@@ -1,0 +1,252 @@
+# Series: 02 §8/§9/§12 — merge-triggered onboarding: one project-onboarding PipelineRun per declaration that a push to main changed
+# Started by the platform repository's .tekton/onboard-changed-projects.yaml
+# (Pipelines-as-Code, push to main changing projects/*.yaml), so one
+# PipelineRun file covers every project and a new project needs no new file.
+# The project-onboarding Pipeline onboards one project per run; this Pipeline
+# only finds the changed declarations and starts one such run for each:
+#   clone                 the pushed revision of the platform repository, depth 2
+#   changed-declarations  projects/*.yaml added, modified or renamed by the
+#                         pushed commit (all of them on the first commit)
+#   start-onboarding      per declaration: read its `name`, wait until the
+#                         `projects` Application has published this revision
+#                         as ConfigMap project-<name>, then create PipelineRun
+#                         onboard-<name>-* (same spec as the Run Template)
+# It runs as ServiceAccount project-onboarding, whose Role in this namespace
+# (../rbac/management-namespace.yaml) already allows reading the declaration
+# ConfigMaps and creating PipelineRuns; it mounts no admin Connector itself.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: onboard-changed-projects
+  namespace: platform-connectors
+  labels:
+    app.kubernetes.io/part-of: project-onboarding
+spec:
+  params:
+    - name: url
+      type: string
+      description: Git URL of the platform repository (PaC `{{ repo_url }}`).
+    - name: revision
+      type: string
+      description: Pushed commit of the platform repository (PaC `{{ revision }}`).
+    - name: sync-timeout
+      type: string
+      default: "600"
+      description: Seconds to wait per project for the `projects` Application to publish the merged declaration as ConfigMap project-<name>.
+  workspaces:
+    - name: source
+      description: Clone of the platform repository, shared by the three tasks.
+    - name: basic-auth
+      optional: true
+      description: Git credentials for the clone (the Secret Pipelines-as-Code generates for the run).
+  results:
+    - name: onboarding-runs
+      description: Space-separated names of the project-onboarding PipelineRuns this run created.
+      value: $(tasks.start-onboarding.results.string-result)
+  tasks:
+    # Depth 2 so the pushed commit's first parent is present for the diff; for
+    # a merge commit that parent is main before the merge, so the diff covers
+    # the whole merge request.
+    - name: clone
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: git-clone
+          - name: version
+            value: "0.10"
+      params:
+        - name: url
+          value: $(params.url)
+        - name: revision
+          value: $(params.revision)
+        - name: depth
+          value: "2"
+      workspaces:
+        - name: output
+          workspace: source
+        - name: basic-auth
+          workspace: basic-auth
+
+    # Writes the changed declaration paths, one per line, to
+    # .git/onboard-changed-projects (inside .git, so outside the work tree).
+    - name: changed-declarations
+      runAfter:
+        - clone
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: git-cli
+          - name: version
+            value: "0.5"
+      params:
+        - name: gitScript
+          value: |
+            LIST=.git/onboard-changed-projects
+            # :(glob) keeps `*` from matching `/`, so the per-project
+            # directories projects/<name>/ that onboarding step 7 adds are not
+            # declarations.
+            if git rev-parse --verify --quiet HEAD~1 >/dev/null; then
+              # Deleted declarations are left out: offboarding is not automated.
+              git diff --name-only --diff-filter=d HEAD~1 HEAD -- ':(glob)projects/*.yaml' > "$LIST"
+            else
+              # First commit of the repository: every declaration is new.
+              git ls-files -- ':(glob)projects/*.yaml' > "$LIST"
+            fi
+            # projects/kustomization.yaml renders the layer; it is not a declaration.
+            grep -v '^projects/kustomization\.yaml$' "$LIST" > "$LIST.tmp" || true
+            mv "$LIST.tmp" "$LIST"
+            echo "Changed declarations:"
+            cat "$LIST"
+      workspaces:
+        - name: source
+          workspace: source
+
+    - name: start-onboarding
+      runAfter:
+        - changed-declarations
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: kubectl
+          - name: version
+            value: "0.1"
+      params:
+        - name: args
+          value:
+            - $(context.pipelineRun.namespace)
+            - $(context.pipelineRun.name)
+            - $(params.sync-timeout)
+        - name: script
+          value: |
+            set -eu
+            NS="$1"
+            DISPATCHER="$2"
+            SYNC_TIMEOUT="$3"
+            LIST=.git/onboard-changed-projects
+            # The image names yq with its version (yq-<major>.<minor>); resolve it.
+            YQ=""
+            for CANDIDATE in /usr/local/bin/yq-*; do
+              if [ -x "$CANDIDATE" ]; then YQ="$CANDIDATE"; break; fi
+            done
+            [ -n "$YQ" ] || YQ="$(command -v yq || true)"
+            [ -n "$YQ" ] || { echo "no yq binary in the kubectl image" >&2; exit 1; }
+            RUNS=""
+            FAILED=""
+            while IFS= read -r FILE; do
+              [ -n "$FILE" ] || continue
+              PROJECT="$("$YQ" e '.name // ""' "$FILE")"
+              # The name becomes namespace and object names: DNS labels only.
+              if ! printf '%s' "$PROJECT" | grep -Eq '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$'; then
+                echo "SKIP ${FILE}: field name '${PROJECT}' is not a DNS label" >&2
+                FAILED="${FAILED} ${FILE}"
+                continue
+              fi
+              # project-onboarding reads ConfigMap project-<name>, which Argo CD
+              # publishes after the same merge. Starting before that sync would
+              # onboard the previous declaration, so wait until the ConfigMap
+              # holds exactly this revision of the file (key = file name).
+              KEY="$(basename "$FILE")"
+              WANT="$(cat "$FILE")"
+              WAITED=0
+              until [ "$(kubectl -n "$NS" get configmap "project-${PROJECT}" \
+                  -o go-template="{{ index .data \"${KEY}\" }}" 2>/dev/null || true)" = "$WANT" ]; do
+                if [ "$WAITED" -ge "$SYNC_TIMEOUT" ]; then
+                  echo "SKIP ${PROJECT}: ConfigMap project-${PROJECT} does not hold this revision of ${FILE} after ${SYNC_TIMEOUT}s" >&2
+                  FAILED="${FAILED} ${FILE}"
+                  continue 2
+                fi
+                sleep 15
+                WAITED=$((WAITED + 15))
+              done
+              # Same PipelineRun as the Run Template (../run-template/).
+              NAME="$(kubectl create -o jsonpath='{.metadata.name}' -f - <<YAML
+            apiVersion: tekton.dev/v1
+            kind: PipelineRun
+            metadata:
+              generateName: onboard-${PROJECT}-
+              namespace: ${NS}
+              labels:
+                samples.example.com/project: ${PROJECT}
+                samples.example.com/dispatched-by: ${DISPATCHER}
+            spec:
+              pipelineRef:
+                resolver: cluster
+                params:
+                  - name: kind
+                    value: pipeline
+                  - name: name
+                    value: project-onboarding
+                  - name: namespace
+                    value: ${NS}
+              params:
+                - name: project
+                  value: ${PROJECT}
+              taskRunTemplate:
+                serviceAccountName: project-onboarding
+              timeouts:
+                pipeline: 1h0m0s
+              # token.expiration 45m: longer than the 30m timeout of each onboarding Task (CSI default 30m).
+              workspaces:
+                - name: gitlab-admin
+                  csi:
+                    driver: connectors-csi
+                    readOnly: true
+                    volumeAttributes:
+                      connectors: ${NS}/gitlab-admin
+                      configuration.names: gitlabconfig,gitconfig
+                      token.expiration: 45m
+                - name: harbor-admin
+                  csi:
+                    driver: connectors-csi
+                    readOnly: true
+                    volumeAttributes:
+                      connectors: ${NS}/harbor-admin
+                      configuration.names: harbor-cli-config
+                      token.expiration: 45m
+                - name: nexus-admin
+                  csi:
+                    driver: connectors-csi
+                    readOnly: true
+                    volumeAttributes:
+                      connectors: ${NS}/nexus-admin
+                      token.expiration: 45m
+                - name: sonarqube-admin
+                  csi:
+                    driver: connectors-csi
+                    readOnly: true
+                    volumeAttributes:
+                      connectors: ${NS}/sonarqube-admin
+                      configuration.names: sonar-scanner
+                      token.expiration: 45m
+            YAML
+              )"
+              echo "Started ${NAME} for project ${PROJECT}"
+              RUNS="${RUNS:+${RUNS} }${NAME}"
+            done < "$LIST"
+            if [ -z "$RUNS" ] && [ -z "$FAILED" ]; then
+              echo "No declaration to onboard in this push."
+            fi
+            printf '%s' "$RUNS" > "$(results.string-result.path)"
+            if [ -n "$FAILED" ]; then
+              # Fail the run so the commit status shows it; the runs above stay.
+              echo "Not started for:${FAILED}. Fix the declaration or wait for the projects Application, then comment on the merge commit if it is still the HEAD of main: /test onboard-changed-projects branch:main (otherwise start the onboarding Run Template per project)" >&2
+              exit 1
+            fi
+      workspaces:
+        - name: source
+          workspace: source

@@ -1,0 +1,43 @@
+# Series: 02 §8/§16 — project declaration for `payments`: the minimal declaration onboarding step 1 accepts
+# Same fields as shop.yaml with the comments left out; every tool-side name is
+# derived from the project name by the naming convention of series 02 §16.
+# `payments` lists no imagePullFrom entry, so it gets no pull access to the
+# Harbor projects of `shop` (acceptance check 02§15-6b relies on this).
+name: payments
+platformProject: payments
+owners:
+  - payments-platform-owners
+environments:
+  - test
+  - prod
+tools:
+  - gitlab
+  - harbor
+  - nexus
+  - sonarqube
+namespaces:
+  workloads:
+    - payments
+    - payments-test
+    - payments-prod
+  build: payments-build
+  delivery: payments-cd
+gitlab:
+  group: payments
+  subgroups:
+    - apps
+    - gitops
+harbor:
+  projects:
+    - payments
+    - payments-prod
+nexus:
+  repositories:
+    - name: payments-maven
+      format: maven2
+      type: hosted
+sonarqube:
+  project: payments
+approvers:
+  prod: group:release-managers
+imagePullFrom:

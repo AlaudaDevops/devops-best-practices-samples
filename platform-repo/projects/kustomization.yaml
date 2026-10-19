@@ -1,0 +1,24 @@
+# Series: 02 §7/§8 — project layer: publishes each project declaration as a ConfigMap and applies what onboarding registered
+# The onboarding pipeline (series 02 §9) reads the declarations from ConfigMaps
+# labelled samples.example.com/project-declaration in the management namespace
+# platform-connectors. One configMapGenerator entry per project file.
+# No top-level `namespace:` on purpose: the per-project directories that
+# onboarding adds through a merge request (resources below) hold objects for
+# argocd, the project namespace and the cluster scope, which must keep their
+# own namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+generatorOptions:
+  # Stable names so the pipeline can address a declaration by project name.
+  disableNameSuffixHash: true
+  labels:
+    samples.example.com/project-declaration: "true"
+configMapGenerator:
+  - name: project-shop
+    namespace: platform-connectors
+    files:
+      - shop.yaml
+  - name: project-payments
+    namespace: platform-connectors
+    files:
+      - payments.yaml

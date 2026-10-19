@@ -1,0 +1,15 @@
+# Series: 02 §12 — TriggerBinding for event-driven onboarding runs (declaration merged)
+# Maps the `project` field of an incoming event body to the Run Template's
+# `project` parameter, so an EventListener (not shipped with this sample) can
+# start onboarding when a declaration is merged into the platform repository.
+# The console Run Template and the ScheduledTriggers do not need it: they pass
+# `project` directly.
+apiVersion: triggers.tekton.dev/v1beta1
+kind: TriggerBinding
+metadata:
+  name: project-onboarding
+  namespace: platform-connectors
+spec:
+  params:
+    - name: project
+      value: $(body.project)

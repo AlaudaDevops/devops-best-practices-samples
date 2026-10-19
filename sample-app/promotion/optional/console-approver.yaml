@@ -1,0 +1,154 @@
+# Series: 01 §6.3 — optional: console role for approvers; read-only in shop-cd on runs, ApprovalTasks and the namespace object,
+# plus platform-wide read-only on ACP projects, ACP user groups (with member names) and the console views; no create, no Secret read
+# Optional, applied by a platform administrator; not referenced by any
+# kustomization. Use it when approvers work in the ACP console (Pipelines ->
+# PipelineRuns -> Approvals); kubectl approvers need none of it: the Manual
+# Approval Gate installation already lets them patch ApprovalTasks.
+# Why an ACP role and not a plain Role or ClusterRole: the console's access
+# checks use ACP role bindings (RoleTemplate bound by a UserBinding), so the
+# approver role of this file is an ACP role.
+# What each grant is for: get on the namespace object (page guard, asked
+# without a name, so no resourceNames); read on the run objects and
+# ApprovalTasks (list and detail); projects (the project's namespace list);
+# the views acp-userview and devops-userview (the Pipelines module); groups
+# (the console resolves Group approvers). Nothing grants create, and no
+# Secret can be read. The cluster part lets members read the list of ACP
+# projects and ACP groups (with member names) platform-wide.
+# Expected result on ACP 4.4 / Pipelines 4.15.1, with only the
+# `<cluster-name>` placeholder replaced and the role bound to the group only:
+# a group member sees the pending approval in the Approvals tab and approves
+# it with Review -> Approve "as a group"; the
+# PipelineRuns Create button is disabled, the Run Template page offers no Run,
+# and `kubectl auth can-i create pipelineruns` and `get secrets` answer no.
+# The console asks for the view acp-userview; devops-userview may not be
+# needed on your version.
+# After adding a scope to an existing RoleTemplate, delete and re-create the
+# RoleTemplate so that it is rendered again.
+# What this file creates: the two ClusterRoles and the RoleTemplate below,
+# all cluster-scoped, and the UserBinding.
+# The group: create the Group from YAML with a fixed `metadata.name` and
+# import its members in the console. Before the first approval, read the
+# `User` object of a member: `spec.groups` must list the group.
+# To take the approver group away: delete the UserBinding, then the Group.
+# Give the platform a minute to process the removal, then list the bindings
+# that still name the group, in every namespace and cluster-wide:
+#   kubectl get clusterrolebinding,rolebinding -A -o wide \
+#     | grep release-managers
+# The list covers every binding that names the group, including those made by
+# hand or from other files. Remove the ones that are no longer wanted, so
+# that no access of the group stays behind.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-approver-namespace
+  labels:
+    rbac.cpaas.io/aggregate-to-release-approver: "true"
+    rbac.cpaas.io/aggregate-to-scope-business-ns: "true"
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+  - apiGroups:
+      - tekton.dev
+    resources:
+      - pipelineruns
+      - taskruns
+      - customruns
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - openshift-pipelines.org
+    resources:
+      - approvaltasks
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: release-approver-cluster
+  labels:
+    rbac.cpaas.io/aggregate-to-release-approver: "true"
+    rbac.cpaas.io/aggregate-to-scope-cluster: "true"
+rules:
+  - apiGroups:
+      - auth.alauda.io
+    resources:
+      - projects
+      - groups
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - auth.alauda.io
+    resources:
+      - views
+    resourceNames:
+      - acp-userview
+      - devops-userview
+    verbs:
+      - get
+      - list
+      - watch
+---
+# The ACP role (RoleTemplate) that aggregates the two ClusterRoles above:
+# the business-ns part is bound in the namespace, the cluster part
+# cluster-wide.
+apiVersion: auth.alauda.io/v1beta1
+kind: RoleTemplate
+metadata:
+  name: release-approver
+  labels:
+    auth.cpaas.io/roletemplate.level: namespace
+    auth.cpaas.io/roletemplate.official: "false"
+    rbac.cpaas.io/version: v2
+  annotations:
+    cpaas.io/display-name: Release approver
+    cpaas.io/display-name.en: Release approver
+spec:
+  rules: []
+  aggregationRules:
+    - scope: business-ns
+      clusterRoleSelectors:
+        - matchLabels:
+            rbac.cpaas.io/aggregate-to-release-approver: "true"
+            rbac.cpaas.io/aggregate-to-scope-business-ns: "true"
+    - scope: cluster
+      clusterRoleSelectors:
+        - matchLabels:
+            rbac.cpaas.io/aggregate-to-release-approver: "true"
+            rbac.cpaas.io/aggregate-to-scope-cluster: "true"
+---
+# One per project: the ACP group gets the role in the delivery namespace only.
+# An ACP group is bound with a UserBinding whose subject is `kind: Group` and
+# the group's resource name (the name the approvers list uses, here
+# release-managers). Replace <cluster-name> (also in the label, where it must
+# be a valid label value), shop and shop-cd.
+apiVersion: auth.alauda.io/v1
+kind: UserBinding
+metadata:
+  name: shop-release-approver
+  labels:
+    auth.cpaas.io/role.level: namespace
+    auth.cpaas.io/role.name: release-approver
+    cpaas.io/cluster: <cluster-name>
+    cpaas.io/project: shop
+    cpaas.io/namespace: shop-cd
+spec:
+  roleRef: release-approver
+  scope: namespace
+  subjects:
+    - kind: Group
+      name: release-managers
+  constraint:
+    - cluster: <cluster-name>
+      project: shop
+      namespace: shop-cd

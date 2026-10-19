@@ -1,0 +1,44 @@
+# Series: 02 §5 — execution history: Tekton Results retention (one global period)
+# Field names and shape follow the product docs "Retention Policy Configuration".
+# This sample sets only the global defaultRetention (the product also supports
+# per-namespace / label policies).
+# Results with S3 log archiving needs an
+# external PostgreSQL and an S3 secret; those connection fields are environment
+# specific and are shown commented out — set them when you enable Results
+# (product docs "S3 Storage Configuration").
+# This fragment does not turn Results on. Before you turn it on, create by
+# hand what the product page lists: the external PostgreSQL, its Secret, and
+# the Secret and the storage for the logs. While Results is off, the
+# retention values below are written to TektonConfig and have no effect.
+# When Results is enabled, its watcher may add `results.tekton.dev/*`
+# finalizers to PipelineRun and TaskRun objects across its watched namespaces.
+# Scope that watcher deliberately before rollout. If archiving is later
+# disabled, existing finalizers can still block deletion; re-enable the
+# component according to the product procedure before cleaning them up.
+# External Results storage is the audit source after the Kubernetes objects
+# are pruned.
+apiVersion: operator.tekton.dev/v1alpha1
+kind: TektonConfig
+metadata:
+  name: config
+spec:
+  result:
+    # logs_api: true
+    # logs_type: S3
+    # secret_name: <s3-secret-name>
+    # is_external_db: true
+    # db_host: <postgres-host>
+    # db_port: 5432
+    # db_name: tekton_results
+    # db_sslmode: require
+    # db_secret_name: <postgres-secret-name>
+    options:
+      configMaps:
+        tekton-results-config-results-retention-policy:
+          data:
+            # Days to keep result records. Deleting their archived logs is best
+            # effort, so logs can remain after the records; if logs must expire,
+            # add a lifecycle rule on the bucket.
+            defaultRetention: "90"
+            # Cron schedule of the retention agent: daily at 02:00.
+            runAt: "0 2 * * *"

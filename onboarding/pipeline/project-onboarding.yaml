@@ -1,0 +1,1037 @@
+# Series: 02 §9–§12 — project onboarding Pipeline: declaration -> namespaces -> four tool tenants -> seeded GitOps repository -> merge request to the platform repository
+# One run onboards (or re-reconciles) ONE project, named by the `project`
+# param. Every step except the GitOps repository seed (step 6, which copies
+# the template only into an empty repository) is create-or-reconcile, so the
+# same run is used for the first onboarding, for a changed declaration and for
+# the scheduled rotation run (series 02 §12). A changed declaration is limited to
+# what step 1 accepts (the GitLab subgroups are fixed to `apps gitops`), and a
+# new environment also needs `envs/<env>/` added to the project's GitOps
+# repository by merge request, because step 6 does not seed it again. The platform project itself is created manually beforehand
+# (series 02 §9 step 1); this Pipeline exports its manifest, it never creates it.
+# On ACP, creating the platform project also creates namespace <project>
+# (labelled cpaas.io/inner-namespace=<project>, without cpaas.io/project);
+# create-namespaces adopts exactly that namespace.
+#
+# Steps (numbered as in series 02 §9):
+#   1 validate-declaration     read ConfigMap project-<project>, check it, derive values
+#     export-platform-project  platform project manifest -> ConfigMap for step 7
+#     create-namespaces        <project>, <project>-<env>..., <project>-build, <project>-cd + labels,
+#                              ServiceAccounts <project>-delivery and <project>-release
+#   2 gitlab-tenant            GitLab group + subgroups + group token + Connector <project>/<project>-gitlab
+#     gitlab-gitops-writer     second group token + Connector <project>-cd/<project>-gitops-writer
+#   3 harbor-tenant            Harbor projects <project> and <project>-prod;
+#                              Connector <project>/<project>-harbor (CI pushes images with it);
+#                              image pull Secrets on `default` of the namespaces that pull project images
+#     harbor-staging-readonly  robot (pull on <project>) + Connector <mgmt>/<project>-registry-readonly
+#     harbor-release           robot (push on <project>-prod, pull on <project>) + Connector
+#                              <mgmt>/<project>-prod-registry
+#   4 nexus-tenant             Nexus repositories + scoped user + project Connector
+#   5 sonarqube-tenant         SonarQube user + scoped permission template + token + project Connector
+#   6 seed-gitops-repo         project GitOps repository <project>/gitops/config seeded from the template
+#     create-pac-repository    PaC Repository <project>-gitops (with platform-injected spec.params)
+#                              + Secret <project>-gitops-auth
+#   7 register-project         merge request to the platform repository: Argo CD Applications,
+#                              AppProject patch, owners' RoleBinding, Connector-mount grants,
+#                              exported platform project
+#                              (catalog Pipeline gitops-repo-update, submitMode pr)
+#
+# Tool-side names are derived from the project name by the naming convention of
+# series 02 §16; step 1 fails when the declaration does not follow it, so the
+# declaration and what the Pipeline creates cannot drift apart.
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: project-onboarding
+  namespace: platform-connectors
+  labels:
+    app.kubernetes.io/part-of: project-onboarding
+spec:
+  params:
+    - name: project
+      type: string
+      description: Project name; the declaration is read from ConfigMap project-<project>.
+    - name: declaration-namespace
+      type: string
+      default: platform-connectors
+      description: Namespace holding the project declaration ConfigMaps.
+    - name: gitlab-url
+      type: string
+      default: https://git.example.com
+      description: GitLab base URL.
+    - name: nexus-url
+      type: string
+      default: https://nexus.example.com
+      description: Nexus base URL.
+    - name: registry-host
+      type: string
+      default: registry.example.com
+      description: Harbor host; step 6 injects <registry-host>/<project> into the PaC Repository params of the project GitOps repository.
+    - name: gitops-repo-name
+      type: string
+      default: config
+      description: Name of the project GitOps repository inside the <project>/gitops subgroup (full path <project>/gitops/config; <project>/gitops itself is the subgroup).
+    - name: gitops-template-url
+      type: string
+      default: https://git.example.com/platform/gitops-template.git
+      description: Git URL of the project GitOps repository template (the gitops-template directory of this sample set).
+    - name: platform-repo-url
+      type: string
+      default: https://git.example.com/platform/platform-config.git
+      description: Git URL of the platform repository; step 7 opens its merge request there.
+    - name: platform-project-resource
+      type: string
+      default: <platform-project-kind>
+      description: PLACEHOLDER — resource name (kind[.group]) of the platform project API, as `kubectl get` accepts it; confirm it on your platform.
+    - name: argocd-namespace
+      type: string
+      default: argocd
+      description: Namespace of Argo CD.
+    - name: argocd-cluster
+      type: string
+      default: <cluster-name>
+      description: Argo CD cluster name of the cluster the project deploys to.
+    - name: token-duration
+      type: string
+      default: "30"
+      description: Validity in days of the GitLab group tokens and the SonarQube token; keep it longer than the rotation interval.
+    - name: git-cli-image
+      type: string
+      default: registry.example.com/catalog/git-init:<tag>
+      description: git image for the clone and push of step 7 (gitops-repo-update gitCliImage).
+    - name: kubectl-image
+      type: string
+      default: registry.example.com/catalog/kubectl:<tag>
+      description: Image that runs templates/render.sh in step 7 (gitops-repo-update updateScriptImage); needs sh and yq v4.
+    - name: glab-image
+      type: string
+      default: registry.example.com/catalog/glab:<tag>
+      description: glab image that opens the merge request of step 7 (gitops-repo-update glabImage).
+  workspaces:
+    # Admin-level Connectors of the management namespace this Pipeline runs in,
+    # mounted through the Connectors CSI Driver by the run template
+    # (../run-template/). Only the tool Tasks see them; project members never
+    # get these credentials.
+    - name: gitlab-admin
+      description: CSI mount of the admin GitLab Connector with the gitlabconfig and gitconfig configurations.
+    - name: harbor-admin
+      description: CSI mount of the admin Harbor Connector with the harbor-cli-config configuration.
+    - name: nexus-admin
+      description: CSI mount of the admin Nexus Connector.
+    - name: sonarqube-admin
+      description: CSI mount of the admin SonarQube Connector with the sonar-scanner configuration.
+  results:
+    - name: gitlab-connector
+      value: $(tasks.gitlab-tenant.results.connector-ref)
+    - name: gitops-writer-connector
+      value: $(tasks.gitlab-gitops-writer.results.connector-ref)
+    - name: harbor-connector
+      value: $(tasks.harbor-tenant.results.connector-ref)
+    - name: harbor-robot-token-rotated
+      value: $(tasks.harbor-tenant.results.robot-token-rotated)
+    - name: staging-readonly-connector
+      value: $(tasks.harbor-staging-readonly.results.connector-ref)
+    - name: release-registry-connector
+      value: $(tasks.harbor-release.results.connector-ref)
+    - name: nexus-connector
+      value: $(tasks.nexus-tenant.results.connector-ref)
+    - name: sonarqube-connector
+      value: $(tasks.sonarqube-tenant.results.connector-ref)
+    - name: register-run
+      value: $(tasks.register-project.results.string-result)
+  tasks:
+    # Step 1 — read and validate the declaration. Catalog `kubectl` Task with an
+    # inline script; the kubectl image ships jq and a version-suffixed yq.
+    # Results: string-result = the nexusRepositories document for step 4,
+    # array-result = the environment list for create-namespaces and step 6.
+    - name: validate-declaration
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: kubectl
+          - name: version
+            value: "0.1"
+      params:
+        - name: args
+          value:
+            - $(params.project)
+            - $(params.declaration-namespace)
+        - name: script
+          value: |
+            set -eu
+            PROJECT="$1"
+            DECL_NS="$2"
+            fail() { echo "INVALID declaration project-${PROJECT}: $*" >&2; exit 1; }
+            # The image names yq with its version (yq-<major>.<minor>); resolve it.
+            YQ="$(ls /usr/local/bin/yq-* 2>/dev/null | head -n 1 || true)"
+            [ -n "$YQ" ] || YQ="$(command -v yq || true)"
+            [ -n "$YQ" ] || fail "no yq binary in the kubectl image"
+            echo "$PROJECT" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$' \
+              || fail "project name must be a lowercase DNS label of at most 32 characters"
+            DECL=/tmp/declaration.yaml
+            kubectl -n "$DECL_NS" get configmap "project-${PROJECT}" \
+              -o jsonpath="{.data.${PROJECT}\.yaml}" > "$DECL"
+            [ -s "$DECL" ] || fail "ConfigMap ${DECL_NS}/project-${PROJECT} has no key ${PROJECT}.yaml"
+            get() { "$YQ" e "$1" "$DECL"; }
+            words() { "$YQ" e "$1" "$DECL" | tr '\n' ' ' | sed 's/ *$//'; }
+            [ "$(get '.name')" = "$PROJECT" ] || fail ".name must be ${PROJECT}"
+            [ -n "$(get '.platformProject // ""')" ] || fail ".platformProject is required (create the platform project first)"
+            # Owners are groups (series 02 §16): bare group names, never a
+            # user reference; the RoleBinding rendered in step 7 binds them.
+            OWNERS="$(words '.owners[]')"
+            [ -n "$OWNERS" ] || fail ".owners must list at least one group"
+            for owner in $OWNERS; do
+              echo "$owner" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$' \
+                || fail "owner '${owner}' must be a group name (lowercase, no user: or group: prefix)"
+            done
+            # This sample onboards all four tools; a shorter list would leave
+            # Tasks below running for tools the project did not ask for.
+            [ "$(words '.tools[]')" = "gitlab harbor nexus sonarqube" ] \
+              || fail ".tools must be: gitlab harbor nexus sonarqube"
+            ENVS="$(words '.environments[]')"
+            [ -n "$ENVS" ] || fail ".environments must list at least one environment"
+            for env in $ENVS; do
+              echo "$env" | grep -Eq '^[a-z0-9]+$' || fail "environment '${env}' must be lowercase alphanumeric"
+            done
+            # Naming convention (series 02 §16): the declaration spells the names
+            # out, the Pipeline derives the same names from the project name.
+            WANT="$PROJECT"
+            for env in $ENVS; do WANT="$WANT ${PROJECT}-${env}"; done
+            [ "$(words '.namespaces.workloads[]')" = "$WANT" ] || fail ".namespaces.workloads must be: $WANT"
+            [ "$(get '.namespaces.build')" = "${PROJECT}-build" ] || fail ".namespaces.build must be ${PROJECT}-build"
+            [ "$(get '.namespaces.delivery')" = "${PROJECT}-cd" ] || fail ".namespaces.delivery must be ${PROJECT}-cd"
+            # The derived names must not reach a platform namespace: without
+            # this, a declaration named `kube` with an environment `system`
+            # (kube-system) or named `argocd` would make create-namespaces
+            # label that namespace and bind the onboarding ServiceAccount in
+            # it. Extend the list with the namespaces of your platform.
+            for ns in $WANT "${PROJECT}-build" "${PROJECT}-cd"; do
+              case "$ns" in
+                default | kube | kube-* | argocd | argocd-* | tekton-* | cpaas-* | *-system | \
+                  platform | platform-* | kyverno | kyverno-* | sealed-secrets | sealed-secrets-*)
+                  fail "namespace ${ns} is reserved for the platform; choose another project name or environment" ;;
+              esac
+            done
+            [ "$(get '.gitlab.group')" = "$PROJECT" ] || fail ".gitlab.group must be ${PROJECT}"
+            [ "$(words '.gitlab.subgroups[]')" = "apps gitops" ] || fail ".gitlab.subgroups must be: apps gitops"
+            [ "$(words '.harbor.projects[]')" = "${PROJECT} ${PROJECT}-prod" ] || fail ".harbor.projects must be: ${PROJECT} ${PROJECT}-prod"
+            [ "$(get '.sonarqube.project')" = "$PROJECT" ] || fail ".sonarqube.project must be ${PROJECT}"
+            for repo in $(words '.nexus.repositories[].name'); do
+              case "$repo" in
+                "${PROJECT}"-*) ;;
+                *) fail "Nexus repository ${repo} must start with ${PROJECT}-" ;;
+              esac
+            done
+            [ "$(get '[.nexus.repositories[] | select(.format == null or .type == null)] | length')" = "0" ] \
+              || fail "every Nexus repository needs format and type"
+            # `approvers` is a reviewed record, not configuration: nothing in
+            # this Pipeline creates or injects the group. The approvers that
+            # take effect are the ApprovalTask list of the promotion Pipeline
+            # and the AccessPolicy of the release Connector, which must be kept
+            # identical to this entry by hand (README "Operating notes").
+            for approver in $(words '.approvers[]'); do
+              case "$approver" in
+                group:*) ;;
+                *) fail "approver ${approver} must be a group (group:<name>), never an individual" ;;
+              esac
+            done
+            # Cross-project pulls (series 02 §13) are not implemented by this
+            # sample; report them instead of silently ignoring them.
+            if [ "$(get '(.imagePullFrom // []) | length')" != "0" ]; then
+              echo "WARNING: imagePullFrom is set but this sample does not grant cross-project pulls; extend harbor-tenant" >&2
+            fi
+            # nexusRepositories for step 4: every declared repository is
+            # provisioned (created and reconciled) by the Nexus Task.
+            "$YQ" e -P '{"provision": [.nexus.repositories[] | {"name": .name, "format": .format, "type": .type, "actions": ["read", "browse", "add", "edit"]}]}' "$DECL" \
+              > "$(results.string-result.path)"
+            "$YQ" e -o=json -I=0 '.environments' "$DECL" > "$(results.array-result.path)"
+            echo "declaration project-${PROJECT} is valid; environments: ${ENVS}"
+
+    # Step 1 (continued) — export the platform project. It was created by hand
+    # on the platform (series 02 §9 step 1); its manifest, without status and
+    # server-set metadata, goes into the platform repository's projects/ layer
+    # through the merge request of step 7, so a new environment is initialized
+    # from the same manifest. It is handed to step 7 as ConfigMap
+    # onboarding-<project>-register in this namespace (the `update-scripts`
+    # workspace of gitops-repo-update). The platform project API kind is a
+    # placeholder (param platform-project-resource).
+    - name: export-platform-project
+      runAfter:
+        - validate-declaration
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: kubectl
+          - name: version
+            value: "0.1"
+      params:
+        - name: args
+          value:
+            - $(params.project)
+            - $(params.declaration-namespace)
+            - $(params.platform-project-resource)
+            - $(context.pipelineRun.namespace)
+        - name: script
+          value: |
+            set -eu
+            PROJECT="$1"
+            DECL_NS="$2"
+            RESOURCE="$3"
+            NS="$4"
+            fail() { echo "export-platform-project: $*" >&2; exit 1; }
+            YQ="$(ls /usr/local/bin/yq-* 2>/dev/null | head -n 1 || true)"
+            [ -n "$YQ" ] || YQ="$(command -v yq || true)"
+            [ -n "$YQ" ] || fail "no yq binary in the kubectl image"
+            NAME="$(kubectl -n "$DECL_NS" get configmap "project-${PROJECT}" \
+              -o jsonpath="{.data.${PROJECT}\.yaml}" | "$YQ" e '.platformProject' -)"
+            OUT=/tmp/platform-project.yaml
+            # Keep what an administrator wrote; drop what the API server adds
+            # (on ACP also the finalizer and the numeric cpaas.io/project.id
+            # label the platform sets on its projects), and the tracking
+            # markers Argo CD and the ACP GitOps plugin add once the `projects`
+            # Application manages the platform project: without that the first
+            # re-run after registration always opens a merge request.
+            kubectl get "$RESOURCE" "$NAME" -o yaml | "$YQ" e 'del(.status)
+              | del(.metadata.managedFields) | del(.metadata.uid)
+              | del(.metadata.resourceVersion) | del(.metadata.creationTimestamp)
+              | del(.metadata.generation) | del(.metadata.selfLink)
+              | del(.metadata.ownerReferences) | del(.metadata.finalizers)
+              | del(.metadata.labels."cpaas.io/project.id")
+              | del(.metadata.annotations."kubectl.kubernetes.io/last-applied-configuration")
+              | del(.metadata.annotations."argocd.argoproj.io/tracking-id")
+              | del(.metadata.labels."gitops.app.cpaas.io/application")
+              | del(.metadata.labels."gitops.app.cpaas.io/appset")
+              | del(.metadata.annotations | select(length == 0))' - > "$OUT"
+            [ -s "$OUT" ] || fail "platform project ${RESOURCE}/${NAME} not found; create it on the platform first"
+            kubectl -n "$NS" create configmap "onboarding-${PROJECT}-register" \
+              --from-file=platform-project.yaml="$OUT" --dry-run=client -o yaml \
+              | kubectl apply -f -
+            kubectl -n "$NS" label configmap "onboarding-${PROJECT}-register" --overwrite \
+              "samples.example.com/project=${PROJECT}"
+            echo "exported ${RESOURCE}/${NAME} to ConfigMap ${NS}/onboarding-${PROJECT}-register"
+
+    # Step 1 (continued) — namespaces. Workload namespaces and the delivery
+    # namespace <project>-cd get Pod Security `restricted`, the build namespace
+    # `baseline` (image builds cannot run restricted). All carry the platform
+    # project label; the project namespace <project> is also marked as the
+    # namespace group so that the project-level Connectors written there can be
+    # mounted from the other project namespaces. Create if absent, then
+    # re-assert the labels on every run so manual drift is corrected. The
+    # delivery namespace also gets the two identities of series 02 §14:
+    # <project>-delivery (CD) and <project>-release (promotion).
+    - name: create-namespaces
+      runAfter:
+        - validate-declaration
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: kubectl
+          - name: version
+            value: "0.1"
+      params:
+        - name: args
+          value:
+            - $(params.project)
+            - $(context.pipelineRun.namespace)
+            - $(tasks.validate-declaration.results.array-result[*])
+        - name: script
+          value: |
+            set -eu
+            PROJECT="$1"
+            SA_NS="$2"
+            shift 2
+            ensure_ns() {
+              ns="$1"
+              level="$2"
+              if kubectl get namespace "$ns" >/dev/null 2>&1; then
+                # Re-assert labels only on a namespace that already belongs to
+                # this project; taking over any other namespace (unlabelled or
+                # of another project) would hand it to this project's owners.
+                owner="$(kubectl get namespace "$ns" -o jsonpath='{.metadata.labels.cpaas\.io/project}')"
+                inner="$(kubectl get namespace "$ns" -o jsonpath='{.metadata.labels.cpaas\.io/inner-namespace}')"
+                if [ "$owner" = "$PROJECT" ]; then
+                  echo "namespace ${ns} exists; re-asserting labels"
+                elif [ "$ns" = "$PROJECT" ] && [ -z "$owner" ] && [ "$inner" = "$PROJECT" ]; then
+                  # The platform creates namespace <project> together with the
+                  # platform project and labels it only as its inner
+                  # namespace; that one namespace is adopted and labelled.
+                  echo "namespace ${ns} is the inner namespace of platform project ${PROJECT}; adopting it"
+                else
+                  echo "namespace ${ns} exists with cpaas.io/project='${owner}', not '${PROJECT}'; refusing to take it over" >&2
+                  exit 1
+                fi
+              else
+                # Create with the labels in one request so the namespace never
+                # exists without its Pod Security level.
+                kubectl create -f - <<EOF
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: ${ns}
+              labels:
+                cpaas.io/project: ${PROJECT}
+                pod-security.kubernetes.io/enforce: ${level}
+                pod-security.kubernetes.io/audit: ${level}
+                pod-security.kubernetes.io/warn: ${level}
+            EOF
+              fi
+              kubectl label namespace "$ns" --overwrite \
+                "cpaas.io/project=${PROJECT}" \
+                "pod-security.kubernetes.io/enforce=${level}" \
+                "pod-security.kubernetes.io/audit=${level}" \
+                "pod-security.kubernetes.io/warn=${level}"
+              # Scope the onboarding ServiceAccount's write access to the
+              # namespaces it created (ClusterRole in ../rbac/).
+              kubectl -n "$ns" create rolebinding project-onboarding \
+                --clusterrole=project-onboarding-namespace \
+                --serviceaccount="${SA_NS}:project-onboarding" \
+                --dry-run=client -o yaml | kubectl apply -f -
+            }
+            ensure_ns "$PROJECT" restricted
+            kubectl label namespace "$PROJECT" --overwrite "cpaas.io/inner-namespace=${PROJECT}"
+            # The project namespace is a workload namespace too
+            # (namespaces.workloads lists it first), so it gets a pull Secret.
+            REFS="${PROJECT}/${PROJECT}-harbor-pull"
+            for env in "$@"; do
+              ensure_ns "${PROJECT}-${env}" restricted
+              REFS="$REFS ${PROJECT}-${env}/${PROJECT}-harbor-pull"
+            done
+            ensure_ns "${PROJECT}-build" baseline
+            # The build namespace gets a pull Secret as well. Which credential
+            # Chains uses for CI signatures is described in
+            # sample-app/chains/README.md.
+            REFS="$REFS ${PROJECT}-build/${PROJECT}-harbor-pull"
+            # Delivery namespace: runs tool images only (git, kustomize, skopeo),
+            # so it needs no pull Secret for project images.
+            ensure_ns "${PROJECT}-cd" restricted
+            for identity in delivery release; do
+              kubectl -n "${PROJECT}-cd" create serviceaccount "${PROJECT}-${identity}" \
+                --dry-run=client -o yaml | kubectl apply -f -
+            done
+            # array-result for step 3: one image pull Secret per namespace that
+            # pulls project images.
+            printf '%s\n' $REFS | jq -R . | jq -cs . > "$(results.array-result.path)"
+
+    # Step 2 — GitLab: group <project>, subgroups apps and gitops, group access
+    # token, project-level Connector <project>/<project>-gitlab. Task shipped
+    # with Alauda DevOps Connectors, installed in this namespace (see README).
+    # accessLevel is always explicit, and a group token covers every subgroup
+    # and repository of the group. Every pipeline of the project can mount this
+    # Connector and the PaC Repository of the GitOps repository uses its token,
+    # so it gets `developer` (the GitLab role that allows clone, push to
+    # unprotected branches, merge requests and commit status), never the right
+    # to change protected branches or group settings. What the token can do is
+    # also bounded by its scopes below: the product documentation names
+    # `write_repository` for Git push over HTTPS, which this token does not get
+    # (VERIFY-TODO.md R2-13).
+    - name: gitlab-tenant
+      runAfter:
+        - create-namespaces
+      timeout: 30m
+      taskRef:
+        kind: Task
+        name: gitlab-connector-automatic-creation
+      params:
+        - name: connector
+          value: $(params.project)/$(params.project)-gitlab
+        - name: gitlabUrl
+          value: $(params.gitlab-url)
+        - name: tenantGroup
+          value: $(params.project)
+        - name: subgroups
+          value:
+            - apps
+            - gitops
+        - name: accessLevel
+          value: developer
+        # `api` lets Pipelines-as-Code report merge request status back;
+        # `read_repository` is the scope the GitLab Connector documentation
+        # names for cloning over HTTPS (also the Task's default pair).
+        - name: scopes
+          value:
+            - api
+            - read_repository
+        - name: tokenDuration
+          value: $(params.token-duration)
+      workspaces:
+        - name: gitlabconfig
+          workspace: gitlab-admin
+
+    # Step 2 (continued) — the GitOps writer of the delivery identity: a second
+    # group token, explicitly `maintainer` (CD to test commits straight to main
+    # of the GitOps repository; CD to prod opens merge requests), written as
+    # Connector <project>-cd/<project>-gitops-writer for the CD and promotion
+    # identities only. Same group and subgroups as gitlab-tenant, so nothing
+    # else is reconciled. Its Secret sits in <project>-cd, where CD runs:
+    # anyone who can create a Pod there can mount it directly, without proxy
+    # or approval (README "Operating notes and hardening").
+    - name: gitlab-gitops-writer
+      runAfter:
+        - gitlab-tenant
+      timeout: 30m
+      taskRef:
+        kind: Task
+        name: gitlab-connector-automatic-creation
+      params:
+        - name: connector
+          value: $(params.project)-cd/$(params.project)-gitops-writer
+        - name: gitlabUrl
+          value: $(params.gitlab-url)
+        - name: tenantGroup
+          value: $(params.project)
+        - name: subgroups
+          value:
+            - apps
+            - gitops
+        - name: accessLevel
+          value: maintainer
+        # The GitOps writer clones (`read_repository`), pushes to main of the
+        # GitOps repository (`write_repository`) and opens merge requests
+        # through the GitLab API for CD to prod (`api`).
+        - name: scopes
+          value:
+            - api
+            - read_repository
+            - write_repository
+        - name: tokenDuration
+          value: $(params.token-duration)
+      workspaces:
+        - name: gitlabconfig
+          workspace: gitlab-admin
+
+    # Step 3 — Harbor: projects <project> (CI pushes) and <project>-prod (CI
+    # only pulls; promotion writes it with a separate release identity, series
+    # 02 §14); the project-level Connector, which CI mounts to push to
+    # <project> (its robot account gets the permissions below); and image pull
+    # Secrets, bound to the `default` ServiceAccount of each namespace from
+    # step 1 that pulls project images.
+    - name: harbor-tenant
+      runAfter:
+        - create-namespaces
+      timeout: 30m
+      taskRef:
+        kind: Task
+        name: harbor-connector-automatic-creation
+      params:
+        - name: connector
+          value: $(params.project)/$(params.project)-harbor
+        - name: harborProjects
+          value:
+            - $(params.project)
+            - $(params.project)-prod
+        # One entry per Harbor project, in the same order.
+        - name: permissions
+          value:
+            - "repository:pull,push"
+            - "repository:pull"
+        # refresh = mint a new robot token on every run (scheduled rotation).
+        - name: robotTokenPolicy
+          value: refresh
+        - name: imagePullSecrets
+          value:
+            - $(tasks.create-namespaces.results.array-result[*])
+        - name: bindImagePullSecretToSA
+          value: "true"
+        - name: serviceAccountName
+          value: default
+      workspaces:
+        - name: harbor-config
+          workspace: harbor-admin
+
+    # Step 3 (continued) — the two Connectors of the promotion (series 01 §6,
+    # 02 §14), written into this management namespace, which project members
+    # cannot read: a read-only robot on <project> and a push robot on
+    # <project>-prod that may also pull from <project> (released per run by
+    # the approval AccessPolicy of the project). The promotion copy needs the
+    # release robot to have pull on <project> as well as pull and push on
+    # <project>-prod; check this grant again when you change the version of
+    # the copy Task. Serialized after harbor-tenant so the three runs of the
+    # Harbor Task never edit the same projects at once.
+    - name: harbor-staging-readonly
+      runAfter:
+        - harbor-tenant
+      timeout: 30m
+      taskRef:
+        kind: Task
+        name: harbor-connector-automatic-creation
+      params:
+        - name: connector
+          value: $(context.pipelineRun.namespace)/$(params.project)-registry-readonly
+        - name: harborProjects
+          value:
+            - $(params.project)
+        - name: permissions
+          value:
+            - "repository:pull"
+        - name: robotTokenPolicy
+          value: refresh
+        - name: bindImagePullSecretToSA
+          value: "false"
+      workspaces:
+        - name: harbor-config
+          workspace: harbor-admin
+    - name: harbor-release
+      runAfter:
+        - harbor-staging-readonly
+      timeout: 30m
+      taskRef:
+        kind: Task
+        name: harbor-connector-automatic-creation
+      params:
+        - name: connector
+          value: $(context.pipelineRun.namespace)/$(params.project)-prod-registry
+        - name: harborProjects
+          value:
+            - $(params.project)-prod
+            - $(params.project)
+        # One entry per Harbor project, in the same order. The pull on the
+        # staging project is for the promotion copy, which reads its source
+        # with this robot (see "Step 3 (continued)" above).
+        - name: permissions
+          value:
+            - "repository:pull,push"
+            - "repository:pull"
+        - name: robotTokenPolicy
+          value: refresh
+        - name: bindImagePullSecretToSA
+          value: "false"
+      workspaces:
+        - name: harbor-config
+          workspace: harbor-admin
+
+    # Step 4 — Nexus: the declared repositories, a user scoped to them and a
+    # project-level Connector. The repository list comes from step 1.
+    - name: nexus-tenant
+      runAfter:
+        - create-namespaces
+      timeout: 30m
+      taskRef:
+        kind: Task
+        name: nexus-connector-automatic-creation
+      params:
+        - name: connector
+          value: $(params.project)/$(params.project)-nexus
+        - name: nexusUrl
+          value: $(params.nexus-url)
+        - name: nexusRepositories
+          value: $(tasks.validate-declaration.results.string-result)
+      workspaces:
+        - name: nexus-secret
+          workspace: nexus-admin
+
+    # Step 5 — SonarQube: tenant user, permission template scoped to the
+    # project key pattern, token, project-level Connector. SonarQube projects
+    # are not created here; the tenant user creates them on its first scan.
+    - name: sonarqube-tenant
+      runAfter:
+        - create-namespaces
+      timeout: 30m
+      taskRef:
+        kind: Task
+        name: sonarqube-connector-automatic-creation
+      params:
+        - name: connector
+          value: $(params.project)/$(params.project)-sonarqube
+        - name: tenant
+          value: $(params.project)
+        # Must not overlap with the pattern of any other project.
+        - name: projectPattern
+          value: ^$(params.project)(:.*)?$
+        - name: tokenDuration
+          value: $(params.token-duration)
+      workspaces:
+        - name: sonarqube-config
+          workspace: sonarqube-admin
+
+    # Step 6 — seed the project GitOps repository <project>/gitops/<name> from
+    # the template: create the repository if absent, copy the template once,
+    # turn the environment templates into one directory per environment
+    # (envs/_<env> when the template has one, for example envs/_prod with the
+    # release image repository, otherwise envs/_env). An already seeded
+    # repository is left untouched (seeding is a one-time copy, series 02 §17).
+    - name: seed-gitops-repo
+      runAfter:
+        - gitlab-tenant
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: gitlab-cli
+          - name: version
+            value: "0.1"
+      params:
+        # The gitlab-cli Task derives the GitLab host from projectPath (or from
+        # the remote of a `source` workspace, which this step does not bind)
+        # and only then applies the Connector's glab and git configuration;
+        # without it glab has no credential and gets 401.
+        - name: projectPath
+          value: $(params.gitlab-url)/$(params.project)/gitops/$(params.gitops-repo-name)
+        - name: runScriptArgs
+          value:
+            - $(params.project)
+            - $(params.gitlab-url)
+            - $(params.gitops-repo-name)
+            - $(params.gitops-template-url)
+            - $(params.registry-host)
+            - $(tasks.validate-declaration.results.array-result[*])
+        - name: runScript
+          value: |
+            PROJECT="$1"
+            GITLAB_URL="$2"
+            REPO_NAME="$3"
+            TEMPLATE_URL="$4"
+            REGISTRY_HOST="$5"
+            shift 5
+            REPO_PATH="${PROJECT}/gitops/${REPO_NAME}"
+            enc() { printf '%s' "$1" | jq -sRr @uri; }
+            if glab api "projects/$(enc "$REPO_PATH")" >/dev/null 2>&1; then
+              echo "repository ${REPO_PATH} exists"
+            else
+              GROUP_ID="$(glab api "groups/$(enc "${PROJECT}/gitops")" | jq -r .id)"
+              glab api --method POST projects -f "name=${REPO_NAME}" -f "path=${REPO_NAME}" \
+                -f "namespace_id=${GROUP_ID}" -f initialize_with_readme=false >/dev/null
+              echo "repository ${REPO_PATH} created"
+            fi
+            WORK="$(mktemp -d)"
+            git clone "${GITLAB_URL}/${REPO_PATH}.git" "${WORK}/repo"
+            if [ -n "$(git -C "${WORK}/repo" ls-files | head -n 1)" ]; then
+              echo "repository ${REPO_PATH} already seeded; left untouched"
+              exit 0
+            fi
+            git clone --depth 1 "$TEMPLATE_URL" "${WORK}/template"
+            rm -rf "${WORK}/template/.git"
+            cp -a "${WORK}/template/." "${WORK}/repo/"
+            cd "${WORK}/repo"
+            for env in "$@"; do
+              src="envs/_env"
+              # An environment-specific template (envs/_prod) wins over envs/_env.
+              [ -d "envs/_${env}" ] && src="envs/_${env}"
+              mkdir -p "envs/${env}"
+              sed "s/^namespace: .*/namespace: ${PROJECT}-${env}/" "${src}/kustomization.yaml" \
+                > "envs/${env}/kustomization.yaml"
+            done
+            rm -rf envs/_*
+            # The render check lists the generated environment directories:
+            # the first template entry becomes the list, the others are dropped.
+            awk -v envs="$*" '
+              /^ *- envs\/_[a-z0-9]*$/ {
+                if (done) next
+                done = 1
+                indent = substr($0, 1, index($0, "-") - 1)
+                n = split(envs, list, " ")
+                for (i = 1; i <= n; i++) print indent "- envs/" list[i]
+                next
+              }
+              { print }' .tekton/validate.yaml > .tekton/validate.yaml.new
+            mv .tekton/validate.yaml.new .tekton/validate.yaml
+            # The template is written for project shop; rename its image paths
+            # (/shop/hello and the release path /shop-prod/hello) and its
+            # part-of label to this project, and replace the template's registry
+            # host in those image references with registry-host.
+            find . -type f -not -path './.git/*' -name '*.yaml' \
+              -exec sed -i -e "s|/shop/hello|/${PROJECT}/hello|g" \
+              -e "s|/shop-prod/hello|/${PROJECT}-prod/hello|g" \
+              -e "s|registry\.example\.com/${PROJECT}|${REGISTRY_HOST}/${PROJECT}|g" \
+              -e "s|app.kubernetes.io/part-of: shop$|app.kubernetes.io/part-of: ${PROJECT}|" {} +
+            # The README of the template names the registry host in its text
+            # and in its table of replacement points; put registry-host there
+            # as well.
+            if [ -f README.md ]; then
+              sed -i -e "s|registry\.example\.com|${REGISTRY_HOST}|g" README.md
+            fi
+            git add -A
+            git -c user.name=project-onboarding -c user.email=project-onboarding@example.com \
+              commit -m "chore: seed GitOps repository for ${PROJECT} from the template"
+            git push origin HEAD:main
+      workspaces:
+        - name: gitlab-auth
+          workspace: gitlab-admin
+
+    # Step 6 (continued) — PaC Repository <project>-gitops for the GitOps
+    # repository (the PaC webhook registration controller creates the webhook,
+    # series 02 §11; the developer token below cannot manage webhooks, so the
+    # controller uses its central webhook credential, a platform prerequisite
+    # in platform-repo/README.md). Secret <project>-gitops-auth holds the
+    # access token, the group token that step 2 wrote into Secret
+    # <project>-gitlab-secret of the project GitLab Connector, copied on every
+    # run so the scheduled rotation reaches PaC too, and the webhook secret, a
+    # random string generated once and kept on later runs; neither ever
+    # appears in git.
+    - name: create-pac-repository
+      runAfter:
+        - seed-gitops-repo
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: kubectl
+          - name: version
+            value: "0.1"
+      params:
+        - name: args
+          value:
+            - $(params.project)
+            - $(params.gitlab-url)
+            - $(params.gitops-repo-name)
+            - $(params.registry-host)
+        - name: script
+          value: |
+            set -eu
+            PROJECT="$1"
+            GITLAB_URL="$2"
+            REPO_URL="$2/${PROJECT}/gitops/$3"
+            REGISTRY="$4/${PROJECT}"
+            fail() { echo "create-pac-repository: $*" >&2; exit 1; }
+            TOKEN_B64="$(kubectl -n "$PROJECT" get secret "${PROJECT}-gitlab-secret" -o jsonpath='{.data.token}')"
+            [ -n "$TOKEN_B64" ] || fail "Secret ${PROJECT}/${PROJECT}-gitlab-secret has no key token"
+            WEBHOOK_B64="$(kubectl -n "$PROJECT" get secret "${PROJECT}-gitops-auth" \
+              -o jsonpath='{.data.webhook\.secret}' 2>/dev/null || true)"
+            if [ -z "$WEBHOOK_B64" ]; then
+              WEBHOOK_B64="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' | base64 | tr -d '\n')"
+            fi
+            # Server-side apply: no last-applied annotation carrying the data.
+            kubectl apply --server-side --field-manager=project-onboarding -f - <<EOF
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: ${PROJECT}-gitops-auth
+              namespace: ${PROJECT}
+            type: Opaque
+            data:
+              provider.token: ${TOKEN_B64}
+              webhook.secret: ${WEBHOOK_B64}
+            EOF
+            # spec.params carries the values the platform injects, so the
+            # project's .tekton/ files read them as {{ registry }} etc. instead
+            # of hard-coding them (series 02 §5, "parameter layering"). They are
+            # rewritten on every run, so a platform-side change reaches all
+            # projects through the scheduled reconcile.
+            kubectl apply -f - <<EOF
+            apiVersion: pipelinesascode.tekton.dev/v1alpha1
+            kind: Repository
+            metadata:
+              name: ${PROJECT}-gitops
+              namespace: ${PROJECT}
+            spec:
+              url: ${REPO_URL}
+              # Run .tekton/ from the default branch, not from the merge
+              # request's source branch: otherwise a project member, or a
+              # merge request author a member allowed with /ok-to-test, could
+              # change the PipelineRun before review and mount the Secrets of
+              # this namespace (tektoncd-operator
+              # docs/en/pac/how_to/advanced_repository_config.mdx).
+              settings:
+                pipelinerun_provenance: "default_branch"
+              params:
+                - name: registry
+                  value: ${REGISTRY}
+                - name: gitlab-connector
+                  value: ${PROJECT}-gitlab
+                - name: harbor-connector
+                  value: ${PROJECT}-harbor
+                - name: nexus-connector
+                  value: ${PROJECT}-nexus
+                - name: sonarqube-connector
+                  value: ${PROJECT}-sonarqube
+              git_provider:
+                type: gitlab
+                # Without the URL Pipelines-as-Code v0.48.1 sends status and
+                # comments, with this token, to https://gitlab.com.
+                url: ${GITLAB_URL}
+                secret:
+                  name: ${PROJECT}-gitops-auth
+                webhook_secret:
+                  name: ${PROJECT}-gitops-auth
+            EOF
+            echo "Repository ${PROJECT}/${PROJECT}-gitops registered for ${REPO_URL}"
+
+    # Step 7 — register the project in the platform repository. Nothing is
+    # applied to Argo CD here: a second PipelineRun of the catalog Pipeline
+    # gitops-repo-update 0.1 (submitMode pr) clones the platform repository,
+    # runs templates/render.sh (Argo CD Application per environment, AppProject
+    # patch, owners' RoleBinding, Connector-mount grants for CI and CD, plus
+    # the platform project exported above,
+    # mounted from ConfigMap onboarding-<project>-register) and opens ONE merge
+    # request. A Pipeline cannot be a task of another Pipeline, so this step
+    # creates that PipelineRun and waits for it; its name is result
+    # `register-run`, the merge request URL is its `pr-url` result. An
+    # unchanged declaration renders no diff, so re-runs open no merge request.
+    # While it waits (up to 20 minutes) this step's Pod keeps its CPU request,
+    # so on a full cluster the child's Pods can stay Pending behind it; the
+    # child has no ownerReference, so cancelling this run does not cancel it
+    # (README "Operating notes and hardening").
+    # Fallback without the platform repository (not used): run
+    # templates/render.sh in a clone and `kubectl apply -k projects/<project>/`,
+    # which needs write access to argocd that ../rbac/ does not grant.
+    - name: register-project
+      runAfter:
+        - export-platform-project
+        - create-pac-repository
+        - gitlab-gitops-writer
+        - harbor-release
+        - nexus-tenant
+        - sonarqube-tenant
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: kubectl
+          - name: version
+            value: "0.1"
+      params:
+        - name: args
+          value:
+            - $(params.project)
+            - $(params.gitlab-url)
+            - $(params.gitops-repo-name)
+            - $(params.argocd-cluster)
+            - $(params.argocd-namespace)
+            - $(params.platform-repo-url)
+            - $(context.pipelineRun.namespace)
+            - $(context.pipelineRun.name)
+            - $(params.git-cli-image)
+            - $(params.kubectl-image)
+            - $(params.glab-image)
+        - name: script
+          value: |
+            set -eu
+            PROJECT="$1"
+            # Argo CD needs the .git form: GitLab answers the URL without it
+            # with a 301 redirect, which Argo CD does not follow.
+            GITOPS_REPO_URL="$2/${PROJECT}/gitops/$3.git"
+            CLUSTER="$4"
+            ARGOCD_NS="$5"
+            PLATFORM_REPO_URL="$6"
+            NS="$7"
+            RUN="$8"
+            GIT_IMAGE="$9"
+            shift 9
+            KUBECTL_IMAGE="$1"
+            GLAB_IMAGE="$2"
+            fail() { echo "register-project: $*" >&2; exit 1; }
+            NAME="$(kubectl create -o jsonpath='{.metadata.name}' -f - <<EOF
+            apiVersion: tekton.dev/v1
+            kind: PipelineRun
+            metadata:
+              generateName: register-project-${PROJECT}-
+              namespace: ${NS}
+              labels:
+                app.kubernetes.io/part-of: project-onboarding
+                samples.example.com/project: ${PROJECT}
+                samples.example.com/onboarding-run: ${RUN}
+            spec:
+              pipelineRef:
+                resolver: hub
+                params:
+                  - name: catalog
+                    value: catalog-pipelines
+                  - name: kind
+                    value: pipeline
+                  - name: name
+                    value: gitops-repo-update
+                  - name: version
+                    value: "0.1"
+              params:
+                - name: url
+                  value: ${PLATFORM_REPO_URL}
+                - name: revision
+                  value: main
+                - name: submitMode
+                  value: pr
+                - name: targetBranch
+                  value: main
+                - name: gitCliImage
+                  value: ${GIT_IMAGE}
+                - name: updateScriptImage
+                  value: ${KUBECTL_IMAGE}
+                - name: glabImage
+                  value: ${GLAB_IMAGE}
+                - name: updateScript
+                  value: |
+                    set -eu
+                    sh templates/render.sh "\$@"
+                - name: updateArgs
+                  value:
+                    - ${PROJECT}
+                    - ${GITOPS_REPO_URL}
+                    - ${CLUSTER}
+                    - ${ARGOCD_NS}
+                - name: commitMessage
+                  value: "feat(projects): register project ${PROJECT}"
+                - name: prTitle
+                  value: "feat(projects): register project ${PROJECT}"
+                - name: prDescription
+                  value: "Rendered by onboarding run ${RUN} from templates/ and projects/${PROJECT}.yaml, with the exported platform project."
+                - name: gitUserName
+                  value: project-onboarding
+                - name: gitUserEmail
+                  value: project-onboarding@example.com
+              taskRunTemplate:
+                serviceAccountName: project-onboarding
+              workspaces:
+                # A fresh volume per run. Do not bind a shared PVC: two runs at
+                # the same time must never share a checkout.
+                - name: source
+                  volumeClaimTemplate:
+                    spec:
+                      accessModes:
+                        - ReadWriteOnce
+                      resources:
+                        requests:
+                          storage: 500Mi
+                # pr mode also calls the GitLab API: git and GitLab CLI
+                # configuration of the admin GitLab Connector of this namespace.
+                - name: git-auth
+                  csi:
+                    driver: connectors-csi
+                    readOnly: true
+                    volumeAttributes:
+                      connectors: ${NS}/gitlab-admin
+                      configuration.names: gitconfig,gitlabconfig
+                - name: update-scripts
+                  configMap:
+                    name: onboarding-${PROJECT}-register
+            EOF
+            )"
+            [ -n "$NAME" ] || fail "could not create the register PipelineRun"
+            printf '%s' "$NAME" > "$(results.string-result.path)"
+            echo "waiting for PipelineRun ${NS}/${NAME}"
+            i=0
+            while :; do
+              st="$(kubectl -n "$NS" get pipelinerun "$NAME" -o jsonpath='{.status.conditions[?(@.type=="Succeeded")].status}')"
+              case "$st" in
+                True) break ;;
+                False) fail "PipelineRun ${NAME} failed; see: tkn -n ${NS} pipelinerun logs ${NAME}" ;;
+              esac
+              i=$((i + 1))
+              [ "$i" -lt 120 ] || fail "PipelineRun ${NAME} not finished after 20 minutes"
+              sleep 10
+            done
+            PR_URL="$(kubectl -n "$NS" get pipelinerun "$NAME" -o jsonpath='{.status.results[?(@.name=="pr-url")].value}')"
+            echo "project ${PROJECT} registered; merge request: ${PR_URL:-none (no change)}"

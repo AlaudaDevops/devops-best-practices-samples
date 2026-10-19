@@ -1,0 +1,112 @@
+# Series: 01 §3.3 — sample application CI on main: build, scan and push the staging image that CD and promotion consume
+# Pipelines-as-Code runs this PipelineRun on every push to main (a merged
+# request); these runs are what pushes to registry.example.com/shop/hello,
+# the repository the sample's CD-to-test and promotion Run Templates use.
+# Before starting one of them, check that the digest comes from a run of this
+# file that ended Succeeded (README.md, "Flow"). Merge requests run
+# ci-merge-request.yaml next to this file instead. The repository holds only
+# "when to run and which parameters"; the build logic lives in the catalog.
+# Run or re-run it from a comment on the commit that is the HEAD of main with:
+#   /test ci branch:main
+# The PaC Repository for this repository (shop/apps/hello) lives in the build
+# namespace (shop-build, Pod Security `baseline`), because buildah cannot run
+# under the `restricted` level enforced on the workload namespaces. Onboarding
+# does not create it; see "Application repository and its PaC Repository" in
+# README.md for the manifest and its prerequisites.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: ci
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[push]"
+    pipelinesascode.tekton.dev/on-target-branch: "[main]"
+    pipelinesascode.tekton.dev/max-keep-runs: "10"
+spec:
+  # Resolver-form pipelineRef with an explicit version: upgrading the build logic
+  # means changing `version` here through a merge request.
+  # python-image-build-scan-deploy 0.3 is used as a language-neutral "clone ->
+  # build Containerfile -> scan" line: its Python pre-build step runs only when
+  # preBuildScript is set, the SonarQube step only when sonarURL is set, and
+  # the deploy step only when workloadName is set, so all three are skipped
+  # here. The Go compile and unit tests run inside the multi-stage
+  # Containerfile.
+  pipelineRef:
+    resolver: hub
+    params:
+      - name: catalog
+        value: catalog-pipelines
+      - name: kind
+        value: pipeline
+      - name: name
+        value: python-image-build-scan-deploy
+      - name: version
+        value: "0.3"
+  params:
+    - name: gitURL
+      value: "{{ repo_url }}"
+    - name: gitRevision
+      value: "{{ revision }}"
+    # Tag the image with the commit SHA for humans; delivery never uses this
+    # tag. CD and promotion take the digest that buildah reports as the
+    # `IMAGE_DIGEST` result of the `build-image` task (see README.md).
+    - name: images
+      value:
+        - "registry.example.com/shop/hello:{{ revision }}"
+    - name: containerfilePath
+      value: ./Containerfile
+    - name: buildContext
+      value: .
+    # Fail the run on HIGH or CRITICAL findings only; the scan step reads the
+    # image just pushed (the first entry of `images`).
+    - name: trivySeverity
+      value:
+        - HIGH
+        - CRITICAL
+    - name: trivyExitCode
+      value: "1"
+    # Air gap: without a DB repository trivy-scanner downloads its
+    # vulnerability DB from mirror.gcr.io and the run fails offline. Point it
+    # at your internal mirror of mirror.gcr.io/aquasec/trivy-db:2 (placeholder
+    # below, README "Replacement points"); the scan step must be able to pull
+    # it (an anonymous-pull project, or one the shop-harbor credential reads).
+    - name: trivyExtraArgs
+      value:
+        - --db-repository
+        - registry.example.com/mirror/trivy-db:2
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+    # Git credentials that PaC generates for this run (clone only).
+    - name: git-basic-auth
+      secret:
+        secretName: "{{ git_auth_secret }}"
+    # Push credentials for the project's Harbor project `shop`, provided by
+    # the project-level Harbor Connector `shop-harbor` that onboarding step 3
+    # (harbor-tenant, connector <project>/<project>-harbor) writes into the
+    # project namespace.
+    - name: registry-config
+      csi:
+        driver: connectors-csi
+        readOnly: true
+        volumeAttributes:
+          connectors: shop/shop-harbor
+          configuration.names: registry-config
+    # CA of the Connectors proxy. registry-config routes buildah and trivy
+    # through the proxy, which re-signs TLS with its own CA; this workspace
+    # (mapped to buildah's cert-dir and trivy's ca-bundle) supplies that CA. It
+    # is needed also for a registry with a public certificate. `!ca.cert`
+    # leaves out the deprecated ca.cert alias: in a cert directory a *.cert
+    # file is read as a client certificate and needs a matching key.
+    - name: ca-bundle
+      csi:
+        driver: connectors-csi
+        readOnly: true
+        volumeAttributes:
+          connectors: shop/shop-harbor
+          configuration.names: registry-config,!ca.cert

@@ -1,0 +1,43 @@
+# Series: 02 §16 — project GitOps template: sample Deployment (restricted Pod Security compliant)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      # Workload namespaces enforce the `restricted` Pod Security level
+      # (series 02 §5), so the pod must satisfy every restricted check.
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hello
+          # Images are referenced by digest only, never by tag: the delivery
+          # pipeline promotes a digest and rewrites it in envs/<env>/ through
+          # the kustomize image transformer. No tag and no digest here on
+          # purpose: a digest literal in base/ stops that transformer, so the
+          # digest set by envs/<env>/ would be ignored.
+          image: registry.example.com/shop/hello
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
