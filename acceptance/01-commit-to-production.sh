@@ -142,7 +142,7 @@ fi
 
 # 3. The prod Argo CD Application is in sync and healthy.
 label="01§11-3 Argo CD $PROD_APPLICATION Synced Healthy"
-st=$(k -n "$ARGOCD_NS" get application "$PROD_APPLICATION" -o jsonpath='{.status.sync.status} {.status.health.status}' 2>/dev/null)
+st=$(k -n "$ARGOCD_NS" get applications.argoproj.io "$PROD_APPLICATION" -o jsonpath='{.status.sync.status} {.status.health.status}' 2>/dev/null)
 if [ "$st" = "Synced Healthy" ]; then ok "$label"; else ko "$label: got '$st'"; fi
 
 # 3b. Prod runs exactly the release of this acceptance: the RELEASE repository

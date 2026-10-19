@@ -121,7 +121,7 @@ fi
 # expected to be Healthy after the first CD run to test (series 01). The check
 # therefore requires Synced and prints the health it saw.
 label="02§15-4 Argo CD $TEST_APPLICATION Synced"
-st=$(k -n "$ARGOCD_NS" get application "$TEST_APPLICATION" -o jsonpath='{.status.sync.status} {.status.health.status}' 2>/dev/null)
+st=$(k -n "$ARGOCD_NS" get applications.argoproj.io "$TEST_APPLICATION" -o jsonpath='{.status.sync.status} {.status.health.status}' 2>/dev/null)
 case "$st" in
   "Synced Healthy") ok "$label (Healthy)" ;;
   Synced\ *) ok "$label (health '${st#Synced }': Healthy only after the first CD run to test)" ;;
