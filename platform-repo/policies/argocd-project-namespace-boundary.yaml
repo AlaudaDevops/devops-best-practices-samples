@@ -17,10 +17,11 @@
 # exists, e.g. the onboarding RoleBinding of a namespace, passes as an
 # "existing violation".
 # Platform administrators and the onboarding ServiceAccount write as other
-# users and are not affected while Kyverno runs. The Kyverno webhook fails
-# closed (failure policy Fail): while Kyverno is down every write this policy
-# matches (the five kinds in project namespaces, by any identity) is refused;
-# to recover, bring Kyverno back first, or delete this policy.
+# users and are not affected while Kyverno runs. A registered Kyverno webhook
+# with failure policy Fail refuses matching writes when it cannot reach
+# Kyverno. An absent webhook provides no enforcement; orderly scale-to-zero
+# can remove the resource webhooks. Recover the service, or use the platform
+# emergency procedure to remove and restore its resource webhook configurations.
 # Without the `roles` rule of kyverno-reports-rolebindings.yaml, Kyverno
 # warns on apply that its reports controller cannot read Roles; that affects
 # reports only, Enforce works. With the rule the warning is gone.

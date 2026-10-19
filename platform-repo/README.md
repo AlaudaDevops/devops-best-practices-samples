@@ -74,11 +74,13 @@ Rules the skeleton follows:
   it refuses Role, RoleBinding, ResourceQuota, LimitRange and NetworkPolicy
   that Argo CD writes into project namespaces for project Applications
   ("Operating notes and hardening").
-- **Keep Kyverno available.** Kyverno registers its admission webhooks fail
-  closed (failure policy `Fail`), so while Kyverno is unavailable, writes
-  matched by any Kyverno policy, Audit or Enforce, may be refused
-  cluster-wide. Run Kyverno highly available and know how to
-  remove its webhooks in an emergency.
+- **Keep Kyverno available.** A registered admission webhook with failure
+  policy `Fail` refuses matching requests when it cannot reach Kyverno,
+  including requests covered by Audit policies. Check webhook registration
+  during maintenance: an absent webhook provides no enforcement, and an
+  orderly scale-to-zero can remove Kyverno's resource webhooks. Run Kyverno
+  highly available and prepare an emergency procedure to restore the service
+  or remove and subsequently restore its resource webhook configurations.
 
 ## Prerequisites
 
@@ -421,16 +423,17 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   for any Application other than `projects` in a namespace labelled
   `cpaas.io/project` (except `cpaas-system`); onboarding and platform
   administrators are not affected while Kyverno runs. Limits: the Kyverno
-  webhook fails closed (failure policy `Fail`), so while Kyverno is down every
-  write the policy matches (the five kinds in project namespaces, by any
-  identity, onboarding and administrators included) is refused (to recover,
-  bring Kyverno back first, or delete this policy); the refusal comes at apply
+  registered webhook fails closed (failure policy `Fail`): when it cannot
+  reach Kyverno, matching writes (the five kinds in project namespaces, by
+  any identity, onboarding and administrators included) are refused. Restore
+  Kyverno first, or follow the platform emergency procedure to remove and
+  restore the resource webhook configurations. The refusal comes at apply
   time, so the sync shows the Kyverno message and keeps retrying; only labelled
   project namespaces are covered; a PolicyException break-glass depends on the
   exception settings ("Policy exceptions" above); Kyverno and the policy must
   run on every cluster Argo CD deploys to, with that cluster's Argo CD
   identity; the exemption reads the annotation tracking id. This sample does
-  not cover: Kyverno being down, a second cluster, `label`
+  not define the platform's Kyverno maintenance procedure or cover a second cluster, `label`
   tracking, and a `projects` sync under the policy. Alternative: point the
   project Applications at an
   AppProject of another name, e.g. `<project>-deploy`, that holds the
