@@ -346,6 +346,17 @@ merge request; to confirm, look for a merge request, not at the `changed`
 result. This relies on the declarations not sitting in a later sync wave than
 the per-project objects; the sample sets no sync waves.
 
+Git restoration does not recover external tool databases or registry contents.
+Keep separate backups for any historical tool data you need. Before workload
+Applications sync against a fresh registry, restore the images and their
+`sha256-<digest>.sig` and `sha256-<digest>.att` artifacts from offline backups,
+preserving their original manifest digests and discovery tags. Harbor can hide
+Cosign signatures from the main artifact list: include its signature accessories
+when building the backup inventory, or enumerate the signature tags explicitly.
+Verify both signatures and provenance with the restored Chains public key and
+normal registry TLS validation. Recreate identity-provider memberships separately;
+source-cluster user IDs are not portable project configuration.
+
 ## Operating notes and hardening
 
 What this sample leaves open, who can hit it, and the recommended hardening.
