@@ -1,4 +1,4 @@
-# Series: 01 §6 — sample application promotion: validate digest -> wait for approval -> copy the image by digest into the release project
+# Series: the delivery article — sample application promotion: validate digest -> wait for approval -> copy the image by digest into the release project
 # Project-local Pipeline in the delivery namespace shop-cd, following the CD
 # Pipeline of the Alauda DevOps delivery tutorial with one deliberate change:
 # the tutorial ends with a `deploy` task (catalog workload-apply 0.1) that
@@ -134,6 +134,10 @@ spec:
         - name: imageMappings
           value:
             - $(params.imageMappings[*])
+        # Preserve an index and all its platforms; also valid for the sample's
+        # single-platform image and explicit .sig/.att attachment mappings.
+        - name: multiArch
+          value: all
         - name: srcTLSVerify
           value: "true"
         - name: dstTLSVerify

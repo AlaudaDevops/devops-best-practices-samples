@@ -1,15 +1,18 @@
-# Series: 01 §5 / 02 §14 — template: `get` on the GitOps writer Connector for the delivery identity (rendered by onboarding step 7)
+# Series: the delivery article / the platform configuration article — template: `get` on the GitOps writer Connector for the delivery identity (rendered by onboarding step 7)
 # render.sh writes it to projects/<project>/connector-mount-delivery.yaml. The
 # connectors-csi driver mounts a Connector only if the Pod's ServiceAccount may
 # `get` it in the Connector's namespace; the CD Run Templates run as
 # <project>-delivery in <project>-cd and mount
 # <project>-cd/<project>-gitops-writer (sample-app/cd/run-template-*.yaml).
-# Onboarding step 1 creates the ServiceAccount, step 2 the Connector. Only
-# `get` on that one Connector, and no access to its Secret. With the default
+# Onboarding step 1 creates the ServiceAccount, step 2 the Connector. This
+# file grants named Connector reads and no Secret API access. With the default
 # feature flags this `get` also lets the ServiceAccount use the Connectors
 # proxy through that Connector, which is what the mount is for (Connectors
 # documentation, "Connectors Proxy Authentication":
 # https://docs.alauda.io/alauda-devops-connectors/1.14/connectors/concepts/connectors_proxy.html#connectors-proxy-authentication).
+# ACP can already grant broader project Connector reads; these named grants
+# do not revoke inherited access. Enable proxy authorization to restrict use
+# by identity, and keep Pod creation away from credential-bearing namespaces.
 # The second rule covers the approval feature: once a platform administrator
 # turns on `enable-connectors-approval`, a mount needs `connectors/proxy` with
 # verb `*` on the Connector as well.

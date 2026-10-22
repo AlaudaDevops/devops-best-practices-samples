@@ -1,11 +1,10 @@
 # Platform repository skeleton
 
 Sample platform GitOps repository for the Alauda DevOps best-practice series,
-article 02 ("Manage platform configuration with Argo CD and Tekton and onboard
-isolated projects automatically"), chapters 5–7. Copy this directory as the root
+the "Managing Platform Configuration and Onboarding Isolated Projects with Argo CD and Tekton on ACP" article. Copy this directory as the root
 of your own platform repository; every path below is relative to this directory,
 except references to other directories of this sample set (`onboarding/`,
-`gitops-template/`, `VERIFY-TODO.md`), which point into the full sample set.
+`gitops-template/`), which point into the full sample set.
 
 This is sample material, not part of the product and not covered by product
 support.
@@ -26,7 +25,7 @@ support.
     └── onboard-changed-projects.yaml  # push to main changing projects/*.yaml: onboards every changed project (one file for all)
 ```
 
-| Directory | Layer (series 02 §5) | Argo CD Application | Destination |
+| Directory | Layer (the "Managing Platform Configuration and Onboarding Isolated Projects" article) | Argo CD Application | Destination |
 |---|---|---|---|
 | `argocd/apps/` | — | `platform-root` | `argocd` on the Argo CD cluster |
 | `components/` | component | `platform-components` (`prune: false`) | cluster-scoped |
@@ -57,7 +56,7 @@ Rules the skeleton follows:
 - **Policies start in Audit.** Read the PolicyReports, then switch
   `failureAction` to `Enforce`. The exception is
   `argocd-project-namespace-boundary.yaml`, Enforce from the start: it is the
-  project boundary of series 02 §6.
+  project boundary of the "Managing Platform Configuration and Onboarding Isolated Projects" article.
 - **The resolver rule is optional.** `policies/pipelinerun-source-baseline.yaml`
   (only the `cluster`, `hub` and `git` resolvers, no inline `pipelineSpec`) is
   a constraint the platform administrator enables per scenario, not part of the
@@ -71,9 +70,12 @@ Rules the skeleton follows:
   report anything, and applying `argocd-project-namespace-boundary.yaml`
   warns that the controller cannot read Roles.
   `argocd-project-namespace-boundary.yaml` belongs to the baseline as well:
-  it refuses Role, RoleBinding, ResourceQuota, LimitRange and NetworkPolicy
+  it refuses Role, RoleBinding, ResourceQuota, LimitRange, NetworkPolicy, PolicyException and AccessPolicy
   that Argo CD writes into project namespaces for project Applications
-  ("Operating notes and hardening").
+  ("Operating notes and hardening"). Verify the installed PolicyException
+  (`kyverno.io/v2`) and AccessPolicy APIs and test allow/deny cases for both.
+  Keep platform exception namespaces outside project Application destinations
+  and restrict writes by non-Argo CD identities through platform permissions.
 - **Keep Kyverno available.** A registered admission webhook with failure
   policy `Fail` refuses matching requests when it cannot reach Kyverno,
   including requests covered by Audit policies. Check webhook registration
@@ -152,6 +154,26 @@ Rules the skeleton follows:
   onboarding registers the Applications, not the credential.
 - The Harbor projects that onboarding creates must stay private; a public
   project would make the pull boundary between projects meaningless.
+- Because those release projects are private, configure Kyverno's image
+  registry credentials (or the equivalent platform image-verification
+  credential) with pull access to each release project and its signature
+  artifacts before switching `policies/require-signed-images.yaml` to
+  `Enforce`. The acceptance script's `skopeo`/`cosign` login does not provide
+  credentials to Kyverno, and this sample does not create the Kyverno Secret.
+  The policy references `kyverno-release-registry-read`. Create it in the
+  namespace of Kyverno's admission controller using a pull-only registry auth
+  file provided through your credential process:
+
+  ```bash
+  kubectl -n <kyverno-namespace> create secret generic kyverno-release-registry-read \
+    --type=kubernetes.io/dockerconfigjson \
+    --from-file=.dockerconfigjson=<registry-auth-file>
+  ```
+
+  Keep the auth file out of Git, or manage the Secret through the platform's
+  encrypted-secret process. Extend its read scope for every new production
+  project and signature repository. Before Enforce, verify a known signed
+  production digest as well as the unsigned negative control.
 - The five credentials in `credentials/` sealed for your cluster.
 
 ## Bootstrap
@@ -191,7 +213,7 @@ repository is a manifest of the credential layer,
 [`credentials/pac-repository-platform-config.yaml`](credentials/pac-repository-platform-config.yaml),
 in `platform-connectors`, next to its sealed token and webhook secret; the
 webhook is created by the PaC webhook registration controller when the central
-webhook credentials are configured (series 02 §5 and §11).
+webhook credentials are configured (see the platform article's prerequisites).
 
 The Repository sets `spec.settings.pipelinerun_provenance: "default_branch"`:
 PaC takes `.tekton/` from `main`, not from the merge request's source branch,
@@ -284,7 +306,7 @@ from the onboarding Run Template.
 
 ## What onboarding adds to this repository
 
-Step 7 of the onboarding pipeline (series 02 §9) opens one merge request per
+Step 7 of the onboarding pipeline (the "Managing Platform Configuration and Onboarding Isolated Projects" article) opens one merge request per
 project against this repository through the catalog Pipeline
 `gitops-repo-update` (`submitMode: pr`). Its update script is
 [`templates/render.sh`](templates/render.sh), run inside the clone of this
@@ -364,14 +386,14 @@ What this sample leaves open, who can hit it, and the recommended hardening.
 - **Pre-merge validation runs in the admin namespace.** The PaC `Repository`
   of this repository is in `platform-connectors`, so its runs could mount the
   admin Secrets and use the onboarding ServiceAccount. `default_branch`
-  provenance limits that to `.tekton/` as merged, i.e. to people who can merge
-  to `main` (who already control the platform through Argo CD). Stronger:
+  provenance selects `.tekton/` as merged; the run still renders proposed MR
+  content. Treat this layout as trusted-platform-maintainer execution. Stronger:
   register the Repository, with its own token Secret, in a separate namespace
   that holds no admin Secret (for example `platform-validation`, created by
   the administrator next to `platform-connectors`), and let the merge-triggered
   dispatcher create the onboarding runs in `platform-connectors` through a
-  ServiceAccount that may only create PipelineRuns there (tektoncd-operator,
-  *Advanced Repository Configuration*).
+  ServiceAccount that may only create PipelineRuns there (see the Pipelines-as-Code
+  [Advanced Repository Configuration](https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/advanced_repository_config.html)).
 - **The onboarding ServiceAccount can use the admin Secrets.** RBAC gives it
   no Secret API access in `platform-connectors`, but it may create
   PipelineRuns there, and a run's Pods can mount any Secret of the namespace.
@@ -381,6 +403,15 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   `project-onboarding` create only PipelineRuns of `project-onboarding` and
   `gitops-repo-update` with no inline spec and no `secret` workspaces (not
   enabled in this sample).
+  Check with an actual project-user context, including its normal groups:
+
+  ```bash
+  kubectl --context=<project-user-context> auth can-i create pods -n platform-connectors
+  kubectl --context=<project-user-context> auth can-i create pipelineruns.tekton.dev -n platform-connectors
+  ```
+
+  Both must return `no`. Check the signing namespace as well. Review inherited
+  ACP roles if either is allowed; policy exclusions do not restrict that access.
 - **The projects layer shares the platform AppProject.** Files under
   `projects/<project>/` are rendered by onboarding and merged by review, but
   are applied with the `platform` AppProject, which allows ClusterRole,
@@ -425,8 +456,8 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   The `projects` Application shows that AppProject as OutOfSync, which is
   expected, and Argo CD attempts the automated sync of `projects` once every
   five minutes, so allow that long for a self-heal of that Application
-  (`onboarding/README.md`, assumption 10). The boundary of series 02 §6 (no
-  Role, RoleBinding, ResourceQuota, LimitRange or NetworkPolicy from the
+  (`onboarding/README.md`, assumption 10). The boundary of the "Managing Platform Configuration and Onboarding Isolated Projects" article (no
+  Role, RoleBinding, ResourceQuota, LimitRange, NetworkPolicy, PolicyException or AccessPolicy from the
   project GitOps repository) is enforced by
   `policies/argocd-project-namespace-boundary.yaml` (Kyverno, Enforce,
   `allowExistingViolations: false`; with Kyverno's default an UPDATE of an
@@ -435,7 +466,7 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   `cpaas.io/project` (except `cpaas-system`); onboarding and platform
   administrators are not affected while Kyverno runs. Limits: the Kyverno
   registered webhook fails closed (failure policy `Fail`): when it cannot
-  reach Kyverno, matching writes (the five kinds in project namespaces, by
+  reach Kyverno, matching writes (the seven kinds in project namespaces, by
   any identity, onboarding and administrators included) are refused. Restore
   Kyverno first, or follow the platform emergency procedure to remove and
   restore the resource webhook configurations. The refusal comes at apply
@@ -510,7 +541,7 @@ What this sample leaves open, who can hit it, and the recommended hardening.
 | `registry.example.com/catalog/kubectl:<tag>` | `.tekton/validate.yaml` (`image` of the render task) | an image of your registry with `sh` and `kubectl` |
 | `onboard-changed-projects` | `.tekton/onboard-changed-projects.yaml` | merge-triggered PipelineRun; its Pipeline name must match the one deployed from the onboarding directory |
 | `system:serviceaccount:platform-connectors:project-onboarding` | `policies/onboarding-rolebinding-scope.yaml` | the onboarding ServiceAccount |
-| `system:serviceaccount:cpaas-system:argocd-manager`, `system:serviceaccount:argocd:argocd-gitops-argocd-application-controller` | `policies/argocd-project-namespace-boundary.yaml` | identities Argo CD writes with: the ServiceAccount of the cluster Secret Alauda GitOps registered (`kubectl -n argocd get secret -l cpaas.io/managed-by=acp`, then a TokenReview of its token) and the application controller's own ServiceAccount (`in-cluster`). Required check after applying the policy, as a cluster administrator, once per identity: `kubectl -n <project>-test create rolebinding boundary-probe --clusterrole=view --group=nobody --dry-run=server --as=<identity>` in a namespace labelled `cpaas.io/project` must be refused with this policy's message (`Argo CD (<identity>) may not CREATE RoleBinding ...`); if it is created, the identities do not match your cluster and the boundary is absent (`VERIFY-TODO.md` R3-8) |
+| `system:serviceaccount:cpaas-system:argocd-manager`, `system:serviceaccount:argocd:argocd-gitops-argocd-application-controller` | `policies/argocd-project-namespace-boundary.yaml` | identities Argo CD writes with: the ServiceAccount of the cluster Secret Alauda GitOps registered (`kubectl -n argocd get secret -l cpaas.io/managed-by=acp`, then a TokenReview of its token) and the application controller's own ServiceAccount (`in-cluster`). Required check after applying the policy, as a cluster administrator, once per identity: `kubectl -n <project>-test create rolebinding boundary-probe --clusterrole=view --group=nobody --dry-run=server --as=<identity>` in a namespace labelled `cpaas.io/project` must be refused with this policy's message (`Argo CD (<identity>) may not CREATE RoleBinding ...`); if it is created, the identities do not match your cluster and the boundary is absent (the boundary probe in the acceptance README) |
 | `projects` | `policies/argocd-project-namespace-boundary.yaml` | name of the Application that applies `projects/` (`argocd/apps/projects.yaml`) |
 | `cpaas-system` | `policies/argocd-project-namespace-boundary.yaml` | `cpaas.io/project` value of the platform's system namespaces |
 | `shop`, `shop-platform-owners`, `group:release-managers` | `projects/`, `templates/` | project names, owner group and approver group |

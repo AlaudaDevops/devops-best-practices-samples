@@ -1,12 +1,11 @@
 # Sample application and its delivery line
 
 A minimal Go HTTP service (`/` and `/healthz`) with the delivery line of the
-Alauda DevOps best-practice series, article 01, chapters 3 to 7: CI from the
+Alauda DevOps best-practice series and the "From Commit to Production on ACP" article: CI from the
 platform catalog, digest-based delivery through the project GitOps repository,
 and gated promotion to the release registry. Every path below is relative to
 this directory, so it can be copied to become the root of an application
-repository; references to other directories of this sample set (`onboarding/`,
-`VERIFY-TODO.md`) point into the full sample set.
+repository; references to other directories of this sample set (`onboarding/`) point into the full sample set.
 
 This is sample material, not part of the product and not covered by product
 support. All names are fictional placeholders.
@@ -56,21 +55,26 @@ digest and `kubectl create` the PipelineRun. When you start a Run Template
 from the console, fill in the form fields listed at the top of each template
 (for the two CD templates switch Integrations off; the promotion template
 has no integration). Starting them from registry events is the reference
-practice of series 01 §6.3 and is not implemented here. D2 should equal D1
+practice of the "From Commit to Production on ACP" article and is not implemented here. D2 should equal D1
 (skopeo copies by digest without converting the manifest); when it differs,
 investigate before deploying.
 
 Merge-request runs (`.tekton/ci-merge-request.yaml`) do not push to
 `shop/hello`: the catalog Pipeline scans the image it has pushed, so they push
 to the scratch repository `shop/hello-mr`, which the sample's CD and promotion
-Run Templates do not use (both fix the repository to `shop/hello`). Of the
-sample's PipelineRuns, only `.tekton/ci.yaml`, which runs for pushes to
-`main`, pushes to `shop/hello`. A person types the digest into a Run
-Template, and `cd/run-template-test.yaml` checks its
-`repository@sha256:<64 hex>` form. Before starting a Run Template, check that
-the digest is the `IMAGE_DIGEST` of a `.tekton/ci.yaml` run (table below)
-that ended `Succeeded`. Before a promotion, check that the CI run that
-reported the digest ended `Succeeded`.
+Run Templates do not use (both fix the repository to `shop/hello`). The `ci.yaml` pre-build guard accepts only a `push` from `main` to `main`.
+Named `/test ci` commands bypass PaC event annotations, so the runtime check
+rejects those commands before build-image, including comments on `main`.
+The guard reads PaC's actual event and branch annotations projected from the
+Pod; it does not trust comment-overridable `{{ event_type }}` or branch inputs.
+Use `ci-merge-request` for comment-triggered checks. The shared Harbor
+credential can still write both repositories; stronger isolation requires
+a separate scratch project and a credential unable to write `shop/hello`. A person types the digest into a Run Template, and
+`cd/run-template-test.yaml` checks its
+`repository@sha256:<64 hex>` form. Before starting a Run Template, check that the digest is the `IMAGE_DIGEST` of
+a `.tekton/ci.yaml` run (table below) that ended `Succeeded`, was triggered by
+a `push` event, and came from `main`. Before a promotion, check the same
+source and verify the image scan result.
 Give `hello-mr` a short tag retention in Harbor.
 
 The digest is the only thing handed from one stage to the next; tags are for
@@ -120,8 +124,9 @@ The image-build Pipelines of the catalog are `python-image-build-scan-deploy`
 and `java-image-build-scan-deploy`. This sample keeps the Go application and
 **borrows the image-build part of `python-image-build-scan-deploy` 0.3**:
 clone, `build-image` (buildah, from `Containerfile`) and the Trivy scan. Its
-Python pre-build, SonarQube and deploy tasks are skipped by leaving
-`preBuildScript`, `sonarURL` and `workloadName` empty; the Go compile and unit
+Pre-build checks the event and branch using a locally mirrored Python Task
+image (only its shell is used; dependency installation is disabled). SonarQube
+and deploy are skipped with `sonarURL` and `workloadName` empty; the Go compile and unit
 tests run inside the multi-stage `Containerfile`. The CI digest D1 is the
 `IMAGE_DIGEST` result of its **`build-image` TaskRun** (command in "Flow"
 above). When your catalog has a Go Pipeline, switch both `.tekton/` files to
@@ -179,7 +184,7 @@ condition, and a Community Build without a branch plugin.
 A Maven, npm or pip build mounts `shop-nexus` the same way, with the
 configuration its Connector class documents for that build tool. Confirm the
 configuration names against the Connectors documentation of your version
-(VERIFY-TODO.md). It needs the same grant as the SonarQube mount, for
+(the product documentation). It needs the same grant as the SonarQube mount, for
 `shop-nexus`, which the template renders as well. Bind the same Connector to
 the Task's `ca-bundle` workspace too: the configuration sends the build tool
 through the Connectors proxy with certificate checking on, and the CA of the
@@ -223,7 +228,7 @@ spec:
     webhook_secret:
       name: hello-pac-auth
   # Run .tekton/ as merged on main, not as proposed by a merge request
-  # (tektoncd-operator, "Advanced Repository Configuration").
+  # ([Advanced Repository Configuration](https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/advanced_repository_config.html)).
   settings:
     pipelinerun_provenance: "default_branch"
 ```
@@ -236,7 +241,7 @@ Prerequisites:
   them or grants that access (see "Who applies what" below).
 - Secret `hello-pac-auth` in `shop-build` with key `provider.token` (a GitLab
   token with `api` and `read_repository` scopes on `shop/apps/hello`, for
-  example a project access token) and key `webhook.secret` (a random string). Create it with `kubectl
+  example a group access token with Developer access) and key `webhook.secret` (a random string). Create it with `kubectl
   create secret generic`; never commit it. The role of the token matters as
   well as its scopes: Pipelines-as-Code reports the commit status with it,
   and on a protected branch GitLab takes a status only from a role that may
@@ -247,9 +252,7 @@ Prerequisites:
   unprotected branch Developer is enough (GitLab CE
   18.8, Pipelines-as-Code v0.48.1).
 - The PaC webhook registration controller configured for `git.example.com`
-  creates the webhook (series 02 §11): with the token of `hello-pac-auth`
-  when it has the Maintainer role, otherwise with the controller's central
-  webhook credential (platform repository README, "Prerequisites"); without
+  creates the webhook (the "Managing Platform Configuration and Onboarding Isolated Projects" article): with the controller's centralized webhook credential (the Developer-level repository token cannot manage webhooks) (platform repository README, "Prerequisites"); without
   the controller, add the webhook in GitLab by hand with the same secret
   (URL, secret token and events: same section).
 - Connector `shop-harbor` in namespace `shop` (onboarding step 3), mounted by
@@ -270,7 +273,10 @@ Prerequisites:
   is empty and the runs use `default`, the subject the
   template grants; if your platform sets a name, change the subject in the
   template. The grants for `shop-release` are in
-  `promotion/standing-access.yaml`.
+  `promotion/standing-access.yaml`. These named grants document the workflow;
+  ACP default project Connector reads can be broader. They do not remove
+  inherited access. Use the proxy permission features for identity-specific
+  restrictions, and verify effective access with the actual ServiceAccount.
 - The Connectors proxy CA on every registry mount: `.tekton/` binds
   workspace `ca-bundle` and the promotion Run Template binds `src-ca-bundle`
   and `dst-ca-bundle`, because the proxy re-signs TLS.
@@ -289,7 +295,7 @@ administrator:
 | Read the CI results (D1) | `shop-build` | platform administrator, or the owners after a grant | `view` in `shop-build` |
 | `cd/run-template-*.yaml`, `promotion/pipeline.yaml`, `promotion/run-template.yaml` | `shop-cd` | platform administrator, or the owners after a grant | create/update `triggertemplates` and `pipelines` in `shop-cd` |
 | Start a Run Template, read D2 | `shop-cd` | platform administrator, or the owners after a grant | create/get `pipelineruns` in `shop-cd` |
-| Approve a promotion | `shop-cd` | members of `release-managers` | patch `approvaltasks.openshift-pipelines.org` in `shop-cd` (granted by the Manual Approval Gate installation; a user changes only their own approval input); a group member approves with one JSON patch that sets the group entry's `input` to `approve` and adds themself to its `users` (`replace` on `/spec/approvers/<i>/input` plus `add` on `/spec/approvers/<i>/users`); send both changes in the same patch. When the entry already lists another member (only with `numberOfApprovalsRequired` above 1), a later member appends with one `add` on `/spec/approvers/<i>/users/-` (a single object); each member of a group counts as one approval. The sample adds no binding for kubectl approvers; console approvers need an ACP role, see `promotion/optional/console-approver.yaml` |
+| Approve a promotion | `shop-cd` | members of `release-managers` | patch `approvaltasks.openshift-pipelines.org` in `shop-cd` (granted by the Manual Approval Gate installation; the sample assumes a user changes only their own approval input, which must be verified in the target version); a group member approves with one JSON patch that sets the group entry's `input` to `approve` and adds themself to its `users` (`replace` on `/spec/approvers/<i>/input` plus `add` on `/spec/approvers/<i>/users`); send both changes in the same patch. When the entry already lists another member (only with `numberOfApprovalsRequired` above 1), a later member appends with one `add` on `/spec/approvers/<i>/users/-` (a single object); each member of a group counts as one approval. The sample adds no binding for kubectl approvers; console approvers need an ACP role, see `promotion/optional/console-approver.yaml` |
 | `promotion/standing-access.yaml` | `platform-connectors` | platform administrator only | — |
 | `promotion/optional/console-approver.yaml` (optional) | cluster-scoped, binding in `shop-cd` | platform administrator only | — |
 | `promotion/access-policy.yaml` (optional) | `platform-connectors` | platform administrator only, immediately after turning on `enable-connectors-approval` (mounts without a grant fail from then on) and before `enable-connector-proxy-permissions` | — |
@@ -340,6 +346,10 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   release robot of `shop-prod-registry` `pull` on `shop` as well as pull and
   push on `shop-prod`; the promotion copy needs all three. The robot cannot
   push to `shop`: promotion does not reuse the CI push credential.
+- **Release labels must be unique.** The promotion Pipeline checks the label
+  format but does not query Harbor for an existing tag. Use a fresh label for
+  every run and enable tag immutability on the `<project>-prod` Harbor project;
+  treat a duplicate-label failure as a failed promotion.
 - **Production admits more than release images.** The platform policy
   `require-signed-images` selects Pods by image reference
   (`registry.example.com/shop-prod/*`), so a Pod in `shop-prod` running an
@@ -368,15 +378,13 @@ What this sample leaves open, who can hit it, and the recommended hardening.
 ## Trigger and re-run
 
 ```text
-/test ci branch:main
 /test ci-merge-request branch:<source-branch>
 ```
 
-`ci` in a comment on the commit that is the HEAD of `main` (Pipelines-as-Code
-requires the commented commit to be the branch HEAD), `ci-merge-request` in a
-merge request comment, where Pipelines-as-Code runs the merge request's source
-branch and ignores `branch:` (so write the source branch). Do not add custom
-`on-comment` commands.
+Post this on the merge request. PaC uses its source branch; `branch:` records
+that choice for the reader. Named `/test ci` commands intentionally fail the
+release-candidate pre-build guard, even on `main`. Retry release-candidate CI
+with a new reviewed push to `main`. See [Trigger PAC Pipelines](https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/trigger_pipeline.html).
 
 ## Replacement points
 

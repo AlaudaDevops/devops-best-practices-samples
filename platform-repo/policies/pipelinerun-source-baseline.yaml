@@ -1,4 +1,4 @@
-# Series: 02 §5.1 — optional constraint: PipelineRuns must use an approved resolver (Audit)
+# Series: the platform configuration article — optional constraint: PipelineRuns must use an approved resolver (Audit)
 # Optional: the platform administrator decides per scenario whether to enable
 # it; the baseline that stays on is no-bare-taskrun.yaml (Audit until switched to Enforce). To turn it off,
 # remove this file from kustomization.yaml in this directory.

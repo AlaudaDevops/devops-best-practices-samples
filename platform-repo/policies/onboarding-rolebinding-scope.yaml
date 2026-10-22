@@ -1,4 +1,4 @@
-# Series: 02 §7 — platform baseline: the onboarding ServiceAccount may bind roles only in project namespaces (Audit)
+# Series: the platform configuration article — platform baseline: the onboarding ServiceAccount may bind roles only in project namespaces (Audit)
 # The onboarding ServiceAccount (onboarding/ of this sample set) may create and
 # patch RoleBindings cluster-wide, because the project namespaces it binds
 # itself in do not exist before it creates them. Without this policy it could
@@ -11,7 +11,7 @@
 # Reports need kyverno-reports-rolebindings.yaml next to this file: Kyverno's
 # reports controller cannot read RoleBindings without it.
 # Residual risk: the same ServiceAccount may label namespaces; see the
-# "Assumptions to verify" section of the onboarding README.
+# "Configuration contracts to verify in your environment" section of the onboarding README.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:

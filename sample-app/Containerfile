@@ -1,4 +1,4 @@
-# Series: 01 §3 — sample application image: multi-stage build, static binary on a minimal non-root base
+# Series: the delivery article — sample application image: multi-stage build, static binary on a minimal non-root base
 # Both base images are placeholders. Replace <tag> with a real tag and pin each
 # image by digest (registry.example.com/base/golang:<tag>@sha256:<digest>) so a
 # rebuild of the same commit uses the same bases. The build runs inside the

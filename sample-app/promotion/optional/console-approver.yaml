@@ -1,4 +1,4 @@
-# Series: 01 §6.3 — optional: console role for approvers; read-only in shop-cd on runs, ApprovalTasks and the namespace object,
+# Series: the delivery article — optional: console role for approvers; read-only in shop-cd on runs, ApprovalTasks and the namespace object,
 # plus platform-wide read-only on ACP projects, ACP user groups (with member names) and the console views; no create, no Secret read
 # Optional, applied by a platform administrator; not referenced by any
 # kustomization. Use it when approvers work in the ACP console (Pipelines ->
@@ -14,7 +14,7 @@
 # (the console resolves Group approvers). Nothing grants create, and no
 # Secret can be read. The cluster part lets members read the list of ACP
 # projects and ACP groups (with member names) platform-wide.
-# Expected result on ACP 4.4 / Pipelines 4.15.1, with only the
+# Expected result on ACP 4.4 / Pipelines 4.15, with only the
 # `<cluster-name>` placeholder replaced and the role bound to the group only:
 # a group member sees the pending approval in the Approvals tab and approves
 # it with Review -> Approve "as a group"; the

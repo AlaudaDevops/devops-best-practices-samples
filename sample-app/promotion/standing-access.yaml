@@ -1,4 +1,4 @@
-# Series: 01 §6.2 — sample application promotion: standing Connector access for the release identity (everything except the approval-gated credential)
+# Series: the delivery article — sample application promotion: standing Connector access for the release identity (everything except the approval-gated credential)
 # Applied in the Connector namespace platform-connectors, with or without the
 # approval flags. Role + RoleBinding, two rules:
 # 1. `get` on both Connectors that the promotion run mounts (the read-only
@@ -11,10 +11,9 @@
 #    a Connector: the CSI driver (and, with `enable-connector-proxy-permissions`,
 #    the proxy) checks `connectors/proxy` with verb `*`; `get` on it does not
 #    pass. This rule is inert while the flag is off.
-#    This identity gets the rule from this Role: an AccessPolicy
-#    `defaultPermission` applies to subjects with namespace-wide `get` on
-#    Connectors in this namespace, and this identity has `get` on two named
-#    Connectors only.
+#    The sample does not use a `defaultPermission` AccessPolicy for this
+#    identity. If the platform adds one, verify its namespace-wide `get`
+#    prerequisite separately; the two named `get` grants below do not imply it.
 # Proxy access to the release Connector is NOT granted here; with the approval
 # flag on it comes only from access-policy.yaml, after approval.
 # Check afterwards, while no promotion is in flight; the expected answer is "no":

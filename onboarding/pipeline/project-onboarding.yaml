@@ -1,18 +1,18 @@
-# Series: 02 §9–§12 — project onboarding Pipeline: declaration -> namespaces -> four tool tenants -> seeded GitOps repository -> merge request to the platform repository
+# Series: the platform configuration article — project onboarding Pipeline: declaration -> namespaces -> four tool tenants -> seeded GitOps repository -> merge request to the platform repository
 # One run onboards (or re-reconciles) ONE project, named by the `project`
 # param. Every step except the GitOps repository seed (step 6, which copies
 # the template only into an empty repository) is create-or-reconcile, so the
 # same run is used for the first onboarding, for a changed declaration and for
-# the scheduled rotation run (series 02 §12). A changed declaration is limited to
+# the scheduled rotation run (the "Managing Platform Configuration and Onboarding Isolated Projects" article). A changed declaration is limited to
 # what step 1 accepts (the GitLab subgroups are fixed to `apps gitops`), and a
 # new environment also needs `envs/<env>/` added to the project's GitOps
 # repository by merge request, because step 6 does not seed it again. The platform project itself is created manually beforehand
-# (series 02 §9 step 1); this Pipeline exports its manifest, it never creates it.
+# (the "Managing Platform Configuration and Onboarding Isolated Projects" article step 1); this Pipeline exports its manifest, it never creates it.
 # On ACP, creating the platform project also creates namespace <project>
 # (labelled cpaas.io/inner-namespace=<project>, without cpaas.io/project);
 # create-namespaces adopts exactly that namespace.
 #
-# Steps (numbered as in series 02 §9):
+# Steps (numbered as in the "Managing Platform Configuration and Onboarding Isolated Projects" article):
 #   1 validate-declaration     read ConfigMap project-<project>, check it, derive values
 #     export-platform-project  platform project manifest -> ConfigMap for step 7
 #     create-namespaces        <project>, <project>-<env>..., <project>-build, <project>-cd + labels,
@@ -36,7 +36,7 @@
 #                              (catalog Pipeline gitops-repo-update, submitMode pr)
 #
 # Tool-side names are derived from the project name by the naming convention of
-# series 02 §16; step 1 fails when the declaration does not follow it, so the
+# the "Managing Platform Configuration and Onboarding Isolated Projects" article; step 1 fails when the declaration does not follow it, so the
 # declaration and what the Pipeline creates cannot drift apart.
 apiVersion: tekton.dev/v1
 kind: Pipeline
@@ -139,11 +139,49 @@ spec:
     - name: register-run
       value: $(tasks.register-project.results.string-result)
   tasks:
+    # All entry points use this Pipeline. ConfigMap create is atomic: a second
+    # run fails before any tool credential is rotated. Failed or cancelled runs
+    # retain the lock for an administrator to inspect; there is no timeout steal.
+    - name: acquire-project-lock
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: kubectl
+          - name: version
+            value: "0.1"
+      params:
+        - name: image
+          value: $(params.kubectl-image)
+        - name: args
+          value:
+            - $(params.project)
+            - $(context.pipelineRun.namespace)
+            - $(context.pipelineRun.uid)
+            - $(context.pipelineRun.name)
+        - name: script
+          value: |
+            set -eu
+            # Arguments identify the tenant, lock namespace and owning run.
+            PROJECT="$1"
+            LOCK_NS="$2"
+            RUN_UID="$3"
+            RUN_NAME="$4"
+            printf '%s\n' "$PROJECT" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'
+            kubectl -n "$LOCK_NS" create configmap "onboarding-${PROJECT}-lock" \
+              --from-literal=pipelineRunUID="$RUN_UID" --from-literal=pipelineRun="$RUN_NAME" \
+              || { echo "Project lock unavailable; inspect the owning run before retrying" >&2; exit 1; }
     # Step 1 — read and validate the declaration. Catalog `kubectl` Task with an
     # inline script; the kubectl image ships jq and a version-suffixed yq.
     # Results: string-result = the nexusRepositories document for step 4,
     # array-result = the environment list for create-namespaces and step 6.
     - name: validate-declaration
+      runAfter:
+        - acquire-project-lock
       taskRef:
         resolver: hub
         params:
@@ -180,7 +218,7 @@ spec:
             words() { "$YQ" e "$1" "$DECL" | tr '\n' ' ' | sed 's/ *$//'; }
             [ "$(get '.name')" = "$PROJECT" ] || fail ".name must be ${PROJECT}"
             [ -n "$(get '.platformProject // ""')" ] || fail ".platformProject is required (create the platform project first)"
-            # Owners are groups (series 02 §16): bare group names, never a
+            # Owners are groups (the "Managing Platform Configuration and Onboarding Isolated Projects" article): bare group names, never a
             # user reference; the RoleBinding rendered in step 7 binds them.
             OWNERS="$(words '.owners[]')"
             [ -n "$OWNERS" ] || fail ".owners must list at least one group"
@@ -197,7 +235,7 @@ spec:
             for env in $ENVS; do
               echo "$env" | grep -Eq '^[a-z0-9]+$' || fail "environment '${env}' must be lowercase alphanumeric"
             done
-            # Naming convention (series 02 §16): the declaration spells the names
+            # Naming convention (the "Managing Platform Configuration and Onboarding Isolated Projects" article): the declaration spells the names
             # out, the Pipeline derives the same names from the project name.
             WANT="$PROJECT"
             for env in $ENVS; do WANT="$WANT ${PROJECT}-${env}"; done
@@ -239,7 +277,7 @@ spec:
                 *) fail "approver ${approver} must be a group (group:<name>), never an individual" ;;
               esac
             done
-            # Cross-project pulls (series 02 §13) are not implemented by this
+            # Cross-project pulls (the "Managing Platform Configuration and Onboarding Isolated Projects" article) are not implemented by this
             # sample; report them instead of silently ignoring them.
             if [ "$(get '(.imagePullFrom // []) | length')" != "0" ]; then
               echo "WARNING: imagePullFrom is set but this sample does not grant cross-project pulls; extend harbor-tenant" >&2
@@ -252,7 +290,7 @@ spec:
             echo "declaration project-${PROJECT} is valid; environments: ${ENVS}"
 
     # Step 1 (continued) — export the platform project. It was created by hand
-    # on the platform (series 02 §9 step 1); its manifest, without status and
+    # on the platform (the "Managing Platform Configuration and Onboarding Isolated Projects" article step 1); its manifest, without status and
     # server-set metadata, goes into the platform repository's projects/ layer
     # through the merge request of step 7, so a new environment is initialized
     # from the same manifest. It is handed to step 7 as ConfigMap
@@ -326,7 +364,7 @@ spec:
     # namespace group so that the project-level Connectors written there can be
     # mounted from the other project namespaces. Create if absent, then
     # re-assert the labels on every run so manual drift is corrected. The
-    # delivery namespace also gets the two identities of series 02 §14:
+    # delivery namespace also gets the two identities of the "Managing Platform Configuration and Onboarding Isolated Projects" article:
     # <project>-delivery (CD) and <project>-release (promotion).
     - name: create-namespaces
       runAfter:
@@ -437,7 +475,7 @@ spec:
     # to change protected branches or group settings. What the token can do is
     # also bounded by its scopes below: the product documentation names
     # `write_repository` for Git push over HTTPS, which this token does not get
-    # (VERIFY-TODO.md R2-13).
+    # (the acceptance README).
     - name: gitlab-tenant
       runAfter:
         - create-namespaces
@@ -513,9 +551,9 @@ spec:
         - name: gitlabconfig
           workspace: gitlab-admin
 
-    # Step 3 — Harbor: projects <project> (CI pushes) and <project>-prod (CI
-    # only pulls; promotion writes it with a separate release identity, series
-    # 02 §14); the project-level Connector, which CI mounts to push to
+    # Step 3 — Harbor: private projects <project> (CI pushes) and <project>-prod (CI
+    # only pulls; promotion writes it with a separate release identity (see the
+    # platform configuration article); the project-level Connector, which CI mounts to push to
     # <project> (its robot account gets the permissions below); and image pull
     # Secrets, bound to the `default` ServiceAccount of each namespace from
     # step 1 that pulls project images.
@@ -552,8 +590,8 @@ spec:
         - name: harbor-config
           workspace: harbor-admin
 
-    # Step 3 (continued) — the two Connectors of the promotion (series 01 §6,
-    # 02 §14), written into this management namespace, which project members
+    # Step 3 (continued) — the two Connectors of the promotion (the "From Commit to Production on ACP" article,
+    # the platform configuration article), written into this management namespace, which project members
     # cannot read: a read-only robot on <project> and a push robot on
     # <project>-prod that may also pull from <project> (released per run by
     # the approval AccessPolicy of the project). The promotion copy needs the
@@ -662,10 +700,11 @@ spec:
     # turn the environment templates into one directory per environment
     # (envs/_<env> when the template has one, for example envs/_prod with the
     # release image repository, otherwise envs/_env). An already seeded
-    # repository is left untouched (seeding is a one-time copy, series 02 §17).
+    # repository is left untouched (seeding is a one-time copy, the "Managing Platform Configuration and Onboarding Isolated Projects" article).
     - name: seed-gitops-repo
       runAfter:
         - gitlab-tenant
+      timeout: 30m
       taskRef:
         resolver: hub
         params:
@@ -694,6 +733,7 @@ spec:
             - $(tasks.validate-declaration.results.array-result[*])
         - name: runScript
           value: |
+            set -eu
             PROJECT="$1"
             GITLAB_URL="$2"
             REPO_NAME="$3"
@@ -742,6 +782,10 @@ spec:
               }
               { print }' .tekton/validate.yaml > .tekton/validate.yaml.new
             mv .tekton/validate.yaml.new .tekton/validate.yaml
+            for env in "$@"; do
+              test -s "envs/${env}/kustomization.yaml"
+            done
+            ! grep -q 'envs/_' .tekton/validate.yaml
             # The template is written for project shop; rename its image paths
             # (/shop/hello and the release path /shop-prod/hello) and its
             # part-of label to this project, and replace the template's registry
@@ -767,7 +811,7 @@ spec:
 
     # Step 6 (continued) — PaC Repository <project>-gitops for the GitOps
     # repository (the PaC webhook registration controller creates the webhook,
-    # series 02 §11; the developer token below cannot manage webhooks, so the
+    # the "Managing Platform Configuration and Onboarding Isolated Projects" article; the developer token below cannot manage webhooks, so the
     # controller uses its central webhook credential, a platform prerequisite
     # in platform-repo/README.md). Secret <project>-gitops-auth holds the
     # access token, the group token that step 2 wrote into Secret
@@ -825,7 +869,7 @@ spec:
             EOF
             # spec.params carries the values the platform injects, so the
             # project's .tekton/ files read them as {{ registry }} etc. instead
-            # of hard-coding them (series 02 §5, "parameter layering"). They are
+            # of hard-coding them (the "Managing Platform Configuration and Onboarding Isolated Projects" article, "parameter layering"). They are
             # rewritten on every run, so a platform-side change reaches all
             # projects through the scheduled reconcile.
             kubectl apply -f - <<EOF
@@ -840,8 +884,8 @@ spec:
               # request's source branch: otherwise a project member, or a
               # merge request author a member allowed with /ok-to-test, could
               # change the PipelineRun before review and mount the Secrets of
-              # this namespace (tektoncd-operator
-              # docs/en/pac/how_to/advanced_repository_config.mdx).
+              # this namespace (see the Pipelines-as-Code Advanced Repository
+              # Configuration: https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/advanced_repository_config.html).
               settings:
                 pipelinerun_provenance: "default_branch"
               params:
@@ -1035,3 +1079,41 @@ spec:
             done
             PR_URL="$(kubectl -n "$NS" get pipelinerun "$NAME" -o jsonpath='{.status.results[?(@.name=="pr-url")].value}')"
             echo "project ${PROJECT} registered; merge request: ${PR_URL:-none (no change)}"
+  finally:
+    - name: release-project-lock
+      taskRef:
+        resolver: hub
+        params:
+          - name: catalog
+            value: catalog
+          - name: kind
+            value: task
+          - name: name
+            value: kubectl
+          - name: version
+            value: "0.1"
+      params:
+        - name: image
+          value: $(params.kubectl-image)
+        - name: args
+          value:
+            - $(params.project)
+            - $(context.pipelineRun.namespace)
+            - $(context.pipelineRun.uid)
+            - $(tasks.status)
+        - name: script
+          value: |
+            set -eu
+            # Never release another run's lock, or an incomplete run's lock.
+            PROJECT="$1"
+            LOCK_NS="$2"
+            RUN_UID="$3"
+            TASKS_STATUS="$4"
+            printf '%s\n' "$PROJECT" | grep -Eq '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'
+            if [ "$TASKS_STATUS" != Succeeded ]; then
+              echo "Retaining project lock; inspect this run and its children before manual cleanup"
+              exit 0
+            fi
+            OWNER="$(kubectl -n "$LOCK_NS" get configmap "onboarding-${PROJECT}-lock" -o jsonpath='{.data.pipelineRunUID}')"
+            [ "$OWNER" = "$RUN_UID" ] || { echo "Lock owner differs; refusing cleanup" >&2; exit 1; }
+            kubectl -n "$LOCK_NS" delete configmap "onboarding-${PROJECT}-lock"

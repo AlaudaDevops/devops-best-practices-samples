@@ -1,5 +1,5 @@
 #!/bin/sh
-# Series: 02 §7/§9/§13 — onboarding step 7: render a project's boundary from templates/ into projects/<project>/
+# Series: the platform configuration article — onboarding step 7: render a project's boundary from templates/ into projects/<project>/
 # Run by the catalog Pipeline gitops-repo-update (submitMode pr) as its update
 # script, from the root of a clone of this repository; the Pipeline then pushes
 # a branch and opens the merge request. Never applies anything to a cluster.
@@ -34,10 +34,11 @@ OUT="projects/${PROJECT}"
 [ -f templates/application.yaml ] || fail "run from the root of the platform repository"
 
 EXPORTED="${GITOPS_UPDATE_SCRIPTS_DIR:-}/platform-project.yaml"
-[ -n "${GITOPS_UPDATE_SCRIPTS_DIR:-}" ] && [ -s "$EXPORTED" ] \
-  || fail "platform-project.yaml missing: bind the update-scripts workspace to the ConfigMap written by onboarding step 1"
+if [ -z "${GITOPS_UPDATE_SCRIPTS_DIR:-}" ] || [ ! -s "$EXPORTED" ]; then
+  fail "platform-project.yaml missing: bind the update-scripts workspace to the ConfigMap written by onboarding step 1"
+fi
 
-HEADER="Series: 02 §7/§9 — rendered by templates/render.sh for project ${PROJECT}; change the declaration or the template, not this file"
+HEADER="Series: the platform configuration article — rendered by templates/render.sh for project ${PROJECT}; change the declaration or the template, not this file"
 export HEADER
 
 rm -rf "$OUT"

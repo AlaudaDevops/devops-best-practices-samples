@@ -1,4 +1,4 @@
-# Series: 02 §8/§9/§12 — merge-triggered onboarding: one project-onboarding PipelineRun per declaration that a push to main changed
+# Series: the platform configuration article — merge-triggered onboarding: one project-onboarding PipelineRun per declaration that a push to main changed
 # Started by the platform repository's .tekton/onboard-changed-projects.yaml
 # (Pipelines-as-Code, push to main changing projects/*.yaml), so one
 # PipelineRun file covers every project and a new project needs no new file.
@@ -9,7 +9,8 @@
 #                         pushed commit (all of them on the first commit)
 #   start-onboarding      per declaration: read its `name`, wait until the
 #                         `projects` Application has published this revision
-#                         as ConfigMap project-<name>, then create PipelineRun
+#                         as ConfigMap project-<name> and the project-specific
+#                         release-Connector Role is available, then create PipelineRun
 #                         onboard-<name>-* (same spec as the Run Template)
 # It runs as ServiceAccount project-onboarding, whose Role in this namespace
 # (../rbac/management-namespace.yaml) already allows reading the declaration
@@ -32,7 +33,7 @@ spec:
     - name: sync-timeout
       type: string
       default: "600"
-      description: Seconds to wait per project for the `projects` Application to publish the merged declaration as ConfigMap project-<name>.
+      description: Seconds to wait per project for the `projects` Application to publish the merged declaration and for the project-specific release-Connector RBAC to become available.
   workspaces:
     - name: source
       description: Clone of the platform repository, shared by the three tasks.
@@ -91,6 +92,7 @@ spec:
       params:
         - name: gitScript
           value: |
+            set -eu
             LIST=.git/onboard-changed-projects
             # :(glob) keeps `*` from matching `/`, so the per-project
             # directories projects/<name>/ that onboarding step 7 adds are not
@@ -157,16 +159,20 @@ spec:
                 continue
               fi
               # project-onboarding reads ConfigMap project-<name>, which Argo CD
-              # publishes after the same merge. Starting before that sync would
-              # onboard the previous declaration, so wait until the ConfigMap
-              # holds exactly this revision of the file (key = file name).
+              # publishes after the same merge. The Harbor release steps also
+              # use the project-specific Role and RoleBinding rendered from
+              # onboarding/rbac. Starting before either Application has synced
+              # can fail a first onboarding run, so wait for both the exact
+              # declaration and its release-Connector RBAC.
               KEY="$(basename "$FILE")"
               WANT="$(cat "$FILE")"
               WAITED=0
               until [ "$(kubectl -n "$NS" get configmap "project-${PROJECT}" \
-                  -o go-template="{{ index .data \"${KEY}\" }}" 2>/dev/null || true)" = "$WANT" ]; do
+                  -o go-template="{{ index .data \"${KEY}\" }}" 2>/dev/null || true)" = "$WANT" ] \
+                && kubectl -n "$NS" get role "project-onboarding-release-connectors-${PROJECT}" >/dev/null 2>&1 \
+                && kubectl -n "$NS" get rolebinding "project-onboarding-release-connectors-${PROJECT}" >/dev/null 2>&1; do
                 if [ "$WAITED" -ge "$SYNC_TIMEOUT" ]; then
-                  echo "SKIP ${PROJECT}: ConfigMap project-${PROJECT} does not hold this revision of ${FILE} after ${SYNC_TIMEOUT}s" >&2
+                  echo "SKIP ${PROJECT}: declaration or release-Connector RBAC is not ready after ${SYNC_TIMEOUT}s" >&2
                   FAILED="${FAILED} ${FILE}"
                   continue 2
                 fi

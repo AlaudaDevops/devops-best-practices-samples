@@ -1,4 +1,4 @@
-# Series: 02 §16 — project GitOps template: per-environment overlay, copied to envs/<env>/ at seeding
+# Series: the platform configuration article — project GitOps template: per-environment overlay, copied to envs/<env>/ at seeding
 # Seeding copies this directory once per environment in the project declaration
 # that has no template of its own (for `shop`: envs/test/; envs/prod/ comes
 # from envs/_prod) and sets `namespace` to that environment's namespace

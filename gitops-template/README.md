@@ -1,7 +1,7 @@
 # Project GitOps repository template
 
 Template for a project's GitOps repository, from the Alauda DevOps best-practice
-series, article 02, chapter 16. The onboarding pipeline copies this directory
+series, the platform configuration article. The onboarding pipeline copies this directory
 into a new repository for each project (for example `shop/gitops/config`, that
 is repository `config` in the project's GitLab subgroup `gitops`), creates one
 environment directory per environment in the project declaration, and registers
@@ -41,7 +41,7 @@ Argo CD renders one Application per environment from `envs/<env>/`.
 Re-run the validation pipeline from a merge request with:
 
 ```text
-/test validate
+/test validate branch:<branch>
 ```
 
 See [Trigger PAC Pipelines](https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/trigger_pipeline.html)
@@ -99,22 +99,26 @@ leaves to you:
   `envs/prod` changes. Onboarding does not configure the GitLab project
   (branch protection, code owners), so until you do, anyone holding the
   writer token, or maintainer rights in the group, can push `envs/prod`
-  straight to `main` and skip the promotion approval. Recommended: protect
-  `main` (push and merge: maintainers only, which in practice means the
-  writer token), require code owner approval on it, and add a `CODEOWNERS`
-  file such as
+  straight to `main` and skip the promotion approval. A Maintainer token can
+  also change branch protection and code-owner settings, so protection of
+  `main` does not constrain that same token. For production, separate the
+  production branch or repository and use a project-scoped writer that may
+  propose a merge request but cannot change its protection or push/merge it.
+  Keep direct test writes on their own path and configure a separate reviewer.
+  This requires adapting the sample CD repository URL and Argo CD source.
+
+  Where the GitLab tier supports enforced code-owner approval, require it on
+  the protected production path and add a rule such as:
 
   ```text
   /envs/prod/ @<release-managers-group-path>
   ```
 
-  With code owner approval required, GitLab also refuses direct pushes to
-  `main` that change `envs/prod/`, while `envs/test/` keeps its direct
-  commit. Code owner approval needs a GitLab tier that offers it. A
-  server-side pre-receive hook (self-managed GitLab), or a separate protected
-  branch or repository for `envs/prod`, also separates the two; only without
-  all three is merge-only-through-review of `envs/prod` a convention, not a
-  control.
+  Verify the actual writer is refused a direct production push and cannot
+  remove the rule, while a reviewed merge and test update still work. A
+  reviewed server-side hook is another option on self-managed GitLab. Until
+  the selected control passes those checks, production review is an operating
+  convention in this sample.
 
 ## Check locally
 
@@ -128,9 +132,9 @@ done
 
 | Placeholder | Where | Meaning |
 |---|---|---|
-| `<registry>/<project>/<image>` | `base/deployment.yaml`, `envs/_env/kustomization.yaml`, `envs/_prod/kustomization.yaml` | staging image repository in the project's Harbor project |
-| `<registry>/<project>-prod/<image>` | `envs/_prod/kustomization.yaml` (`newName`) | release image repository in the project's production Harbor project |
+| `registry.example.com/shop/hello` | `base/deployment.yaml`, `envs/_env/kustomization.yaml`, `envs/_prod/kustomization.yaml` | staging image repository; replace the literal registry, project and image values |
+| `registry.example.com/shop-prod/hello` | `envs/_prod/kustomization.yaml` (`newName`) | release image repository; replace the literal registry, project and image values |
 | `<digest>` | `envs/_env/kustomization.yaml`, `envs/_prod/kustomization.yaml` | image digest written by the delivery pipeline |
-| `<project>-<environment>` | `envs/_env/kustomization.yaml`, `envs/_prod/kustomization.yaml` | environment namespace, set per environment at seeding |
+| `shop-test` / `shop-prod` | `envs/_env/kustomization.yaml`, `envs/_prod/kustomization.yaml` | environment namespaces; replace the literal values during seeding |
 | `envs/<environment>` | `.tekton/validate.yaml` (`paths`) | the generated environment directories; list every seeded overlay |
 | `<registry>/<catalog-project>/kubectl:<tag>` | `.tekton/validate.yaml` (`image` of the render task) | an air-gapped image of your registry with `sh` and `kubectl`; set host, project and tag in the template repository |

@@ -1,4 +1,4 @@
-# Series: 02 §5.1 — platform baseline: no bare TaskRun / CustomRun outside a PipelineRun (Audit)
+# Series: the platform configuration article — platform baseline: no bare TaskRun / CustomRun outside a PipelineRun (Audit)
 # A TaskRun or CustomRun created by anyone other than the Tekton controller is a
 # "bare" run that escapes checks that only match PipelineRuns, such as the
 # optional resolver constraint (pipelinerun-source-baseline.yaml). The decision is

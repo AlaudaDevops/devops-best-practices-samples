@@ -97,8 +97,7 @@ Argo CD cluster name `<cluster-name>` used elsewhere in this repository).
 ## Back up the sealing key
 
 A `SealedSecret` can only be decrypted by the controller whose key sealed it.
-When the platform is rebuilt from this repository on a new cluster (series 02
-§17), a new controller generates a new key and none of the files here
+When the platform is rebuilt from this repository on a new cluster (the "Managing Platform Configuration and Onboarding Isolated Projects" article), a new controller generates a new key and none of the files here
 decrypts: the admin Connectors have no Secret and onboarding steps 2–5 fail.
 Do one of the following, and write down which one your platform uses:
 
@@ -119,4 +118,4 @@ file here.
 Seal the new value the same way and commit the new ciphertext; git history is
 the audit trail. The controller updates the `Secret` in place and the Connector
 picks it up. Project-level credentials written by the auto-creation tasks are
-**not** stored here — they are rotated by re-running the tasks (series 02 §12).
+**not** stored here — they are rotated by re-running the tasks (the "Managing Platform Configuration and Onboarding Isolated Projects" article).

@@ -1,4 +1,4 @@
-# Series: 02 §5 — component layer: TektonConfig fragments for run pruning, result retention and the Chains registry credential
+# Series: the platform configuration article — component layer: TektonConfig fragments for run pruning, result retention and the Chains registry credential
 # tektonconfig.yaml names the singleton TektonConfig `config`; each fragment is
 # merged into it as a patch, so the rendered output is ONE partial TektonConfig.
 # Argo CD applies it with server-side apply and owns only these fields; every

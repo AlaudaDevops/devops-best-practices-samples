@@ -1,4 +1,4 @@
-# Series: 02 §12 — TriggerBinding for event-driven onboarding runs (declaration merged)
+# Series: the platform configuration article — TriggerBinding for event-driven onboarding runs (declaration merged)
 # Maps the `project` field of an incoming event body to the Run Template's
 # `project` parameter, so an EventListener (not shipped with this sample) can
 # start onboarding when a declaration is merged into the platform repository.

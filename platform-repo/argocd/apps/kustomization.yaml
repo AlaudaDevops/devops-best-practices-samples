@@ -1,4 +1,4 @@
-# Series: 02 §6 — app-of-apps entry point: the root Application points at this directory
+# Series: the platform configuration article — app-of-apps entry point: the root Application points at this directory
 # Everything the root Application manages is listed here. The root Application
 # manages itself too, so after the one-time bootstrap (`kubectl apply -k argocd/apps/`)
 # a change to any file below is rolled out by a merge request, not by kubectl.
@@ -11,5 +11,5 @@ resources:
   - platform-credentials.yaml
   - projects.yaml
   - platform-components.yaml
-  # Fifth Application: the onboarding/ directory (series 02 §7).
+  # Fifth Application: the onboarding/ directory (the "Managing Platform Configuration and Onboarding Isolated Projects" article).
   - platform-onboarding.yaml

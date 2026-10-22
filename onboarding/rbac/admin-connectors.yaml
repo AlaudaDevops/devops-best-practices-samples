@@ -1,12 +1,14 @@
-# Series: 02 §5/§10 — use of the four admin-level Connectors through the Connectors CSI Driver and proxy (steps 2–7)
+# Series: the platform configuration article — use of the four admin-level Connectors through the Connectors CSI Driver and proxy (steps 2–7)
 # The Connectors proxy accepts the Pod's ServiceAccount token when it can read
-# the target Connector; both rules are limited to the four admin Connectors
-# by name. Once the feature flag enable-connectors-approval is on, the CSI
-# driver (and, with enable-connector-proxy-permissions, the proxy) checks
-# connectors/proxy with verb `*`; the `get` below does not satisfy it, so from
-# that moment the mounts need the AccessPolicy of
-# ../optional/admin-connectors-access.yaml. The Connectors live in the
-# namespace the pipeline runs in, so no cross-namespace mounting is involved.
+# the target Connector. The namespace-wide `get` is intentional: the
+# `defaultPermission` AccessPolicy only applies to identities with that
+# namespace-wide read, while the proxy rule remains limited to the four admin
+# Connectors by name. Once the feature flag enable-connectors-approval is on,
+# the CSI driver (and, with enable-connector-proxy-permissions, the proxy)
+# checks connectors/proxy with verb `*`; the AccessPolicy of
+# ../optional/admin-connectors-access.yaml supplies that proxy permission.
+# The Connectors live in the namespace the pipeline runs in, so no
+# cross-namespace mounting is involved.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -17,6 +19,11 @@ rules:
       - connectors.alauda.io
     resources:
       - connectors
+    verbs:
+      - get
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
       - connectors/proxy
     resourceNames:
       - gitlab-admin

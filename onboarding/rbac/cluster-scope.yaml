@@ -1,4 +1,4 @@
-# Series: 02 §9/§14 — cluster-scoped permissions of the onboarding ServiceAccount (step 1)
+# Series: the platform configuration article — cluster-scoped permissions of the onboarding ServiceAccount (step 1)
 # Step 1 creates and labels the project namespaces, then binds
 # project-onboarding-namespace inside each of them. The `bind` verb is limited
 # to that one ClusterRole, so the ServiceAccount cannot grant itself anything

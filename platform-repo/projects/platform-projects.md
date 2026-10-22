@@ -1,7 +1,7 @@
 # Platform projects
 
 A platform project is a Kubernetes resource on the platform, but it is **created
-manually on the platform first** (series 02 §9, step 1). Onboarding does not
+manually on the platform first** (the "Managing Platform Configuration and Onboarding Isolated Projects" article, step 1). Onboarding does not
 block on it: the administrator creates the project in the platform console, then
 the onboarding pipeline exports its manifest (`kubectl get <platform-project-kind>
 <name> -o yaml` without `status` and server-set metadata) and proposes it as

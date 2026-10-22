@@ -1,4 +1,4 @@
-# Series: 02 §6/§7/§8 — project layer: one declaration per project and the boundaries onboarding registers (projects/)
+# Series: the platform configuration article — project layer: one declaration per project and the boundaries onboarding registers (projects/)
 # Renders the declaration ConfigMaps into platform-connectors and, per
 # onboarded project, the files onboarding proposed by merge request
 # (projects/<project>/): Applications and the AppProject patch in argocd, the

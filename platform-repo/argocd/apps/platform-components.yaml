@@ -1,4 +1,4 @@
-# Series: 02 §5/§6/§7 — component layer: TektonConfig fragments for Pruner, Results and the Chains registry credential (components/)
+# Series: the platform configuration article — component layer: TektonConfig fragments for Pruner, Results and the Chains registry credential (components/)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -24,7 +24,8 @@ spec:
       # Never prune here: removing a file from components/ must not delete the
       # singleton TektonConfig `config`, which would uninstall Tekton components.
       prune: false
-      selfHeal: true
+      # Observe operator field ownership before enabling continuous self-heal.
+      selfHeal: false
     syncOptions:
       # Server-side apply is what makes a partial TektonConfig safe: Argo CD
       # only owns the fields written in components/, the operator keeps the rest.

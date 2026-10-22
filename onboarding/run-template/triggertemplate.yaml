@@ -1,4 +1,4 @@
-# Series: 02 §9/§12 — console Run Template: renders one onboarding PipelineRun for a project
+# Series: the platform configuration article — console Run Template: renders one onboarding PipelineRun for a project
 # The console stores a Run Template as a TriggerTemplate labelled
 # triggertemplate.triggers.tekton.dev/usage: runtime-config. `project` is the
 # only parameter a user supplies; everything else is fixed here or defaulted in

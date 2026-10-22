@@ -1,4 +1,4 @@
-# Series: 02 §5/§10 — OPTIONAL: Connector access for the onboarding ServiceAccount once the Connectors approval feature is on
+# Series: the platform configuration article — OPTIONAL: Connector access for the onboarding ServiceAccount once the Connectors approval feature is on
 # Not listed in ../kustomization.yaml on purpose: an AccessPolicy is
 # accepted only while the cluster flag `enable-connectors-approval` is on,
 # and the flag is off by default, so this file belongs in the layer only

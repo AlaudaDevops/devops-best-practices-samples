@@ -1,7 +1,8 @@
 # Verify Chains signatures and provenance
 
-Series 01, chapter 6.4. The platform signs images with Tekton Chains (a
-platform-wide configuration, series 02). This directory shows how a project
+This directory accompanies the "From Commit to Production on ACP" article.
+The platform signs images with Tekton Chains (a platform-wide configuration
+described in the platform configuration article). It shows how a project
 checks the result before promotion or before a release is approved.
 
 | File | What it does |
@@ -43,8 +44,11 @@ IMAGE=registry.example.com/shop/hello@sha256:<digest> COSIGN_PUB=./cosign.pub IG
   `policies/require-signed-images.yaml`) narrows mistakes, such as a CI image
   sent to production. It does not tie a release to the platform's promotion
   Pipeline: the name is only the Pipeline's name, any namespace can run a
-  Pipeline of that name, and the default Chains format (SLSA v0.2) carries no
-  namespace of the run.
+  Pipeline of that name. The sample expects Chains
+  `artifacts.taskrun.format: slsa/v1`, which emits SLSA provenance v0.2 and
+  carries no namespace of the run. Its verification command therefore uses
+  cosign `--type slsaprovenance`; a different format requires a matching type
+  and policy field paths.
 - Verify by digest only. The digest of a CI build is the `IMAGE_DIGEST` result
   of the `build-image` task; the digest of a release image is the
   `promoted-digest` result of the promotion run (`../promotion/`).
@@ -117,7 +121,12 @@ repository. The platform sets no storage location. Verify without
   accepts them after the image mapping, and only as the `.sig` / `.att` tags of
   the same digest with the same tag in the staging and release repositories;
   any other extra mapping (another digest, a plain tag, another repository, or
-  the image not first) stops the run before the approval (series 01 §6.1).
+  the image not first) stops the run before the approval (the "From Commit to Production on ACP" article).
+  The copy task uses `multiArch: all`: for a single-platform image the explicit
+  mappings copy that image and its attachments; for an image index the setting
+  preserves the index and all platforms. It does not discover `.sig` or `.att`
+  tags; keep those mappings explicit. With another Chains storage format or
+  attachment layout, adapt the mappings and validate the copied evidence.
 
 ## Optional hardening: a separate signature repository
 

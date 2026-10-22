@@ -1,11 +1,11 @@
-# Series: 01 §5 — sample application CD to test: Run Template that writes a built digest into envs/test of the project GitOps repository (submitMode direct)
+# Series: the delivery article — sample application CD to test: Run Template that writes a built digest into envs/test of the project GitOps repository (submitMode direct)
 # A Run Template (a TriggerTemplate labelled `runtime-config`) for the catalog
 # Pipeline gitops-repo-update 0.1. It commits straight to main of the project
 # GitOps repository; Argo CD then syncs envs/test to namespace shop-test.
 # In this sample it is started by hand with the `IMAGE_DIGEST` result of a
 # successful CI run on main (.tekton/ci.yaml; merge request runs push only to
 # the scratch repository hello-mr). Starting it from a Harbor PUSH_ARTIFACT
-# event is the reference practice of series 01 §6.3 and is not part of this
+# event is the reference practice of the "From Commit to Production on ACP" article and is not part of this
 # sample.
 # Two ways to start it by hand:
 #   - take the PipelineRun from `resourcetemplates`, replace
@@ -18,11 +18,12 @@
 #     update script rejects anything else); fill Commit Message. The run is
 #     named after the Pipeline (`gitops-repo-update-*`) and carries no label of
 #     this template.
-# A Trigger or ScheduledTrigger fills the parameter.
-# Only the digest is set at run time; repository, environment and image name
-# are fixed here, so a run started from this template cannot write another
-# environment. Restrict who may create PipelineRuns in shop-cd
-# (sample-app/README.md, "Operating notes and hardening").
+# A Trigger or ScheduledTrigger fills the parameter. A PipelineRun rendered
+# from this template has the repository, environment and image name fixed in
+# its YAML. The console form exposes Repository URL and Update Args, however,
+# so it can target another repository unless the creator is trusted and the
+# promotion guardrails are enabled. Restrict who may create PipelineRuns in
+# shop-cd (sample-app/README.md, "Operating notes and hardening").
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerTemplate
 metadata:

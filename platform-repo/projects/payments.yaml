@@ -1,8 +1,8 @@
-# Series: 02 §8/§16 — project declaration for `payments`: the minimal declaration onboarding step 1 accepts
+# Series: the platform configuration article — project declaration for `payments`: the minimal declaration onboarding step 1 accepts
 # Same fields as shop.yaml with the comments left out; every tool-side name is
-# derived from the project name by the naming convention of series 02 §16.
+# derived from the project name by the naming convention of the "Managing Platform Configuration and Onboarding Isolated Projects" article
 # `payments` lists no imagePullFrom entry, so it gets no pull access to the
-# Harbor projects of `shop` (acceptance check 02§15-6b relies on this).
+# Harbor projects of `shop` (acceptance check onboarding-cross-project-negative relies on this).
 name: payments
 platformProject: payments
 owners:

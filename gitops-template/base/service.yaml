@@ -1,4 +1,4 @@
-# Series: 02 §16 — project GitOps template: sample Service in front of the Deployment
+# Series: the platform configuration article — project GitOps template: sample Service in front of the Deployment
 apiVersion: v1
 kind: Service
 metadata:

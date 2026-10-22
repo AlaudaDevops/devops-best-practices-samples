@@ -1,4 +1,4 @@
-# Series: 02 §16 — project GitOps repository: pre-merge render check of every environment overlay
+# Series: the platform configuration article — project GitOps repository: pre-merge render check of every environment overlay
 # Pipelines-as-Code runs this PipelineRun on every merge request to main and
 # fails the check when any envs/<env>/ overlay does not `kustomize build`.
 # Onboarding registers the repository with pipelinerun_provenance

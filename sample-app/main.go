@@ -1,4 +1,4 @@
-// Series: 01 §3–§7 — sample application: a minimal HTTP "hello" service built
+// Series: the delivery article — sample application: a minimal HTTP "hello" service built
 // and delivered by the pipelines in .tekton/, cd/ and promotion/.
 package main
 

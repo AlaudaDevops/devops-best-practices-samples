@@ -1,5 +1,5 @@
-# Series: 02 §7/§8 — project layer: publishes each project declaration as a ConfigMap and applies what onboarding registered
-# The onboarding pipeline (series 02 §9) reads the declarations from ConfigMaps
+# Series: the platform configuration article — project layer: publishes each project declaration as a ConfigMap and applies what onboarding registered
+# The onboarding pipeline (the "Managing Platform Configuration and Onboarding Isolated Projects" article) reads the declarations from ConfigMaps
 # labelled samples.example.com/project-declaration in the management namespace
 # platform-connectors. One configMapGenerator entry per project file.
 # No top-level `namespace:` on purpose: the per-project directories that

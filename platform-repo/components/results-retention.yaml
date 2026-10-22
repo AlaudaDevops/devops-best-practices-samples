@@ -1,4 +1,4 @@
-# Series: 02 §5 — execution history: Tekton Results retention (one global period)
+# Series: the platform configuration article — execution history: Tekton Results retention (one global period)
 # Field names and shape follow the product docs "Retention Policy Configuration".
 # This sample sets only the global defaultRetention (the product also supports
 # per-namespace / label policies).

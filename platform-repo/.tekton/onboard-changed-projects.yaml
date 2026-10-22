@@ -1,4 +1,4 @@
-# Series: 02 §8/§9/§12 — merge-triggered onboarding: a push to main that changes projects/*.yaml onboards every changed project
+# Series: the platform configuration article — merge-triggered onboarding: a push to main that changes projects/*.yaml onboards every changed project
 # Pipelines-as-Code runs this PipelineRun when a merge into main adds or
 # changes a project declaration projects/<project>.yaml. One file for every
 # project: the Pipeline onboard-changed-projects (onboarding/pipeline/ of this

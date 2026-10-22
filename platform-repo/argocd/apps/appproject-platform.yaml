@@ -1,7 +1,7 @@
-# Series: 02 §6/§7 — Argo CD AppProject that bounds the platform Applications
+# Series: the platform configuration article — Argo CD AppProject that bounds the platform Applications
 # The platform layers may only be read from the platform repository and may only
 # write the kinds listed below. Project AppProjects are NOT declared here: the
-# platform may synchronize one per platform project (series 02 §6); the
+# platform may synchronize one per platform project (the "Managing Platform Configuration and Onboarding Isolated Projects" article); the
 # projects layer only patches the fields its declaration decides
 # (templates/appproject-patch.yaml).
 apiVersion: argoproj.io/v1alpha1

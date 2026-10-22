@@ -1,6 +1,6 @@
-# Series: 02 §7 — lets the Kyverno reports controller read RoleBindings and Roles, so the policies that match them can report at all
+# Series: the platform configuration article — lets the Kyverno reports controller read the RBAC and policy kinds protected by the platform boundary
 # onboarding-rolebinding-scope.yaml matches RoleBindings. The reports
-# controller of the Kyverno shipped with ACP (1.15.9) has no rule for
+# controller of the Kyverno shipped with ACP (1.15) has no rule for
 # RoleBindings, so it cannot start its watcher ("rolebindings ... is
 # forbidden") and the Audit policy never produces a PolicyReport; the admission
 # dry run warns about the same missing permission. The label aggregates this
@@ -22,6 +22,23 @@ rules:
     resources:
       - rolebindings
       - roles
+    verbs:
+      - get
+      - list
+      - watch
+  # The project Application boundary also protects these namespaced policies.
+  - apiGroups:
+      - kyverno.io
+    resources:
+      - policyexceptions
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - connectors.alauda.io
+    resources:
+      - accesspolicies
     verbs:
       - get
       - list

@@ -1,4 +1,4 @@
-# Series: 01 §3.3 / 02 §14 — template: `get` on the project Connectors that the CI ServiceAccount of the build namespace mounts (rendered by onboarding step 7)
+# Series: the delivery article / the platform configuration article — template: `get` on the project Connectors that the CI ServiceAccount of the build namespace mounts (rendered by onboarding step 7)
 # render.sh writes it to projects/<project>/connector-mount-ci.yaml. The
 # connectors-csi driver mounts a Connector only if the Pod's ServiceAccount may
 # `get` it in the Connector's namespace; the application CI in <project>-build
@@ -7,12 +7,15 @@
 # `spec.pipeline.default-service-account`; that value is empty on Alauda
 # DevOps Pipelines 4.15 and the runs then use ServiceAccount `default`
 # (there is no `pipeline` ServiceAccount). If your
-# platform sets a name, change the subject here. Only `get` on the Connectors
-# named below, and no access to their Secrets. With the default feature flags
+# platform sets a name, change the subject here. This file grants `get` on
+# the named Connectors and grants no Secret API access. With the default feature flags
 # this `get` also lets the ServiceAccount use the Connectors proxy through that
 # Connector, which is what the mount is for (Connectors documentation,
 # "Connectors Proxy Authentication":
 # https://docs.alauda.io/alauda-devops-connectors/1.14/connectors/concepts/connectors_proxy.html#connectors-proxy-authentication).
+# ACP can already grant broader project Connector reads; these named grants
+# do not revoke inherited access. Enable proxy authorization to restrict use
+# by identity, and keep Pod creation away from credential-bearing namespaces.
 # The second rule covers the approval feature: once a platform administrator
 # turns on `enable-connectors-approval`, a mount needs `connectors/proxy` with
 # verb `*` on the Connector as well.

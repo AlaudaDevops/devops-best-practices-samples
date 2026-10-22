@@ -1,10 +1,12 @@
-# Series: 02 §8/§9 — permissions of the onboarding ServiceAccount in its own (management) namespace (steps 1 and 7, merge trigger)
+# Series: the platform configuration article — permissions of the onboarding ServiceAccount in its own (management) namespace (steps 1 and 7, merge trigger)
 #   configmaps     step 1 reads the declarations (ConfigMaps project-<name>,
 #                  published by the platform repository's projects/ layer) and
 #                  writes ConfigMap onboarding-<project>-register with the
 #                  exported platform project for step 7; the merge-triggered
 #                  onboard-changed-projects Pipeline reads the declarations to
-#                  wait for their Argo CD sync
+#                  wait for their Argo CD sync; project-onboarding creates and
+#                  reads the per-project lock (named delete grants are in the
+#                  per-project release-connectors RBAC files)
 #   pipelineruns   step 7 starts the gitops-repo-update PipelineRun that opens
 #                  the merge request against the platform repository, then
 #                  polls it until it finishes; onboard-changed-projects starts

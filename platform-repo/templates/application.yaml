@@ -1,4 +1,4 @@
-# Series: 02 §7/§9/§13 — template: one Argo CD Application per environment of a project (rendered by onboarding step 7)
+# Series: the platform configuration article — template: one Argo CD Application per environment of a project (rendered by onboarding step 7)
 # render.sh (next to this file) turns it into projects/<project>/application-<env>.yaml
 # once per declared environment; onboarding proposes the result to this
 # repository through a merge request, it never applies it directly. The values

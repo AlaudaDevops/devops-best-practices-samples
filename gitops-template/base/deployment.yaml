@@ -1,4 +1,4 @@
-# Series: 02 §16 — project GitOps template: sample Deployment (restricted Pod Security compliant)
+# Series: the platform configuration article — project GitOps template: sample Deployment (restricted Pod Security compliant)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,7 +14,7 @@ spec:
         app: hello
     spec:
       # Workload namespaces enforce the `restricted` Pod Security level
-      # (series 02 §5), so the pod must satisfy every restricted check.
+      # (the "Managing Platform Configuration and Onboarding Isolated Projects" article), so the pod must satisfy every restricted check.
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -30,6 +30,19 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

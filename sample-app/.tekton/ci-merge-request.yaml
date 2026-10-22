@@ -1,4 +1,4 @@
-# Series: 01 §3.3/§7 — sample application CI on merge requests: build and scan unmerged code without touching the staging repository
+# Series: the delivery article — sample application CI on merge requests: build and scan unmerged code without touching the staging repository
 # Pipelines-as-Code runs this PipelineRun on every merge request to main. It is
 # the pre-merge check (compile, unit tests in the Containerfile, image scan);
 # it blocks a merge only when the Git platform requires it to pass, which this

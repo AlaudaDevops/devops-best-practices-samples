@@ -1,8 +1,8 @@
-# Series: 02 §6/§7 — platform baseline: project Applications may not deploy Role, RoleBinding, ResourceQuota, LimitRange or NetworkPolicy into project namespaces (Enforce)
+# Series: the platform configuration article — platform baseline: project Applications may not change platform boundary resources (Enforce)
 # The project boundary an AppProject namespaceResourceBlacklist would give.
-# The project boundary of series 02 §6. On ACP, Alauda GitOps manages the
+# The project boundary of the "Managing Platform Configuration and Onboarding Isolated Projects" article: on ACP, Alauda GitOps manages the
 # AppProject named after each platform project; templates/appproject-patch.yaml
-# sets sourceRepos and destinations on it, and this policy refuses the five
+# sets sourceRepos and destinations on it, and this policy refuses the seven
 # kinds (README "Operating notes and hardening").
 # The decision is anchored on who writes (request.userInfo: the identities
 # Argo CD uses for this cluster) and on which Application owns the object
@@ -58,6 +58,10 @@ spec:
                 - ResourceQuota
                 - LimitRange
                 - networking.k8s.io/v1/NetworkPolicy
+                # Exceptions and credential policies are platform decisions.
+                # Check these installed API versions before enabling this rule.
+                - kyverno.io/v2/PolicyException
+                - connectors.alauda.io/v1alpha1/AccessPolicy
               operations:
                 - CREATE
                 - UPDATE
@@ -81,7 +85,7 @@ spec:
       validate:
         failureAction: Enforce
         allowExistingViolations: false
-        message: "Argo CD ({{ request.userInfo.username }}) may not {{ request.operation }} {{ request.kind.kind }} {{ request.namespace }}/{{ request.name }}: Role, RoleBinding, ResourceQuota, LimitRange and NetworkPolicy in project namespaces come from the platform, not from a project GitOps repository (tracked by '{{ trackedBy }}')"
+        message: "Argo CD ({{ request.userInfo.username }}) may not {{ request.operation }} {{ request.kind.kind }} {{ request.namespace }}/{{ request.name }}: Role, RoleBinding, ResourceQuota, LimitRange, NetworkPolicy, PolicyException and AccessPolicy in project namespaces come from the platform, not from a project GitOps repository (tracked by '{{ trackedBy }}')"
         deny:
           conditions:
             all:

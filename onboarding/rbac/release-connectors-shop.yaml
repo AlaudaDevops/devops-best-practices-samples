@@ -1,4 +1,4 @@
-# Series: 02 §14 (01 §6) — onboarding writes the promotion Connectors of project `shop` into the management namespace (step 3)
+# Series: the platform configuration article (the delivery article) — onboarding writes the promotion Connectors of project `shop` into the management namespace (step 3)
 # One file per onboarded project, added together with its ScheduledTrigger in
 # ../triggers/. harbor-staging-readonly and harbor-release write the Connectors
 # shop-registry-readonly and shop-prod-registry and their Secrets here.
@@ -19,6 +19,26 @@ metadata:
   labels:
     samples.example.com/project: shop
 rules:
+  # Dispatcher waits for both objects before starting the project's run.
+  # Keep this name-scoped check with each project's registration grant.
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - roles
+      - rolebindings
+    resourceNames:
+      - project-onboarding-release-connectors-shop
+    verbs:
+      - get
+  # A finally task deletes only the lock owned by its PipelineRun UID.
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    resourceNames:
+      - onboarding-shop-lock
+    verbs:
+      - delete
   - apiGroups:
       - ""
     resources:

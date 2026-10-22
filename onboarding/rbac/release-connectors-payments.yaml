@@ -1,4 +1,4 @@
-# Series: 02 §14 (01 §6) — onboarding writes the promotion Connectors of project `payments` into the management namespace (step 3)
+# Series: the platform configuration article (the delivery article) — onboarding writes the promotion Connectors of project `payments` into the management namespace (step 3)
 # One file per onboarded project, added together with its ScheduledTrigger in
 # ../triggers/. harbor-staging-readonly and harbor-release write the Connectors
 # payments-registry-readonly and payments-prod-registry and their Secrets here.
@@ -19,6 +19,25 @@ metadata:
   labels:
     samples.example.com/project: payments
 rules:
+  # Dispatcher waits for both objects before starting the project's run.
+  - apiGroups:
+      - rbac.authorization.k8s.io
+    resources:
+      - roles
+      - rolebindings
+    resourceNames:
+      - project-onboarding-release-connectors-payments
+    verbs:
+      - get
+  # A finally task deletes only the lock owned by its PipelineRun UID.
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    resourceNames:
+      - onboarding-payments-lock
+    verbs:
+      - delete
   - apiGroups:
       - ""
     resources:

@@ -1,4 +1,4 @@
-# Series: 02 §5 — run cleanup: event-based Tekton Pruner defaults with namespace overrides
+# Series: the platform configuration article — run cleanup: event-based Tekton Pruner defaults with namespace overrides
 # Field names and shape follow the product docs "Tekton Pruner / Quick Start"
 # and "Namespace Configuration". The job-based pruner and the event-based
 # pruner are mutually exclusive: turning this one on requires turning the old
@@ -36,8 +36,8 @@ spec:
       # run: export the ApprovalTask before its run is pruned, or keep the runs
       # of approval namespaces longer.
       #
-      # The event-based watcher is cluster-wide at this level. With Results
-      # archiving enabled, it can add `results.tekton.dev/*` finalizers to
+      # The Tekton Results archiving watcher is cluster-wide at this level. It
+      # can add `results.tekton.dev/*` finalizers to
       # finished PipelineRun and TaskRun objects in every watched namespace.
       # Turning the watcher off later does not remove finalizers already left
       # on objects, so deletion can remain blocked. Before enabling it, scope

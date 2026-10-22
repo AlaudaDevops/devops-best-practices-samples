@@ -1,4 +1,4 @@
-# Series: 01 §6.2 — sample application promotion: release the release-registry Connector only after approval
+# Series: the delivery article — sample application promotion: release the release-registry Connector only after approval
 # Applied in the Connector namespace platform-connectors. Proxy access to the
 # release Connector `shop-prod-registry` is granted to the Pods of a promotion
 # run, and only after the ApprovalTask of that run is approved by an approver
@@ -19,7 +19,7 @@
 # Connector, so that its mount always goes through the approval; approval flag;
 # immediately this file (the release Connector mount needs it) and the
 # AccessPolicies among those grants; then the proxy-permissions flag.
-# Optional layer (series 01 §6.2): worth it when the owners of the release
+# Optional layer (the "From Commit to Production on ACP" article): worth it when the owners of the release
 # credential are not the owners of the pipelines.
 apiVersion: connectors.alauda.io/v1alpha1
 kind: AccessPolicy

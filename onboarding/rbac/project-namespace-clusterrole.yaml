@@ -1,4 +1,4 @@
-# Series: 02 §9/§14 — permissions of the onboarding ServiceAccount inside each project namespace (steps 1–6)
+# Series: the platform configuration article — permissions of the onboarding ServiceAccount inside each project namespace (steps 1–6)
 # Not bound cluster-wide: step 1 creates a RoleBinding `project-onboarding` to
 # this ClusterRole in every namespace it creates (<project>, <project>-<env>,
 # <project>-build, <project>-cd), so the write access ends at the project's

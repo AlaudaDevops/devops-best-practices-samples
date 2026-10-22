@@ -1,15 +1,15 @@
 # Project onboarding pipeline
 
-Sample onboarding pipeline for the Alauda DevOps best-practice series, article
-02 ("Manage platform configuration with Argo CD and Tekton and onboard isolated
-projects automatically"), chapters 8–12. One run turns a merged project
+Sample onboarding pipeline for the Alauda DevOps best-practice series and the
+"Managing Platform Configuration and Onboarding Isolated Projects with Argo CD
+and Tekton on ACP" article. One run turns a merged project
 declaration into an isolated project: namespaces, one tenant in each of GitLab,
 Harbor, Nexus and SonarQube, project-level Connectors, the identities and
 Connectors of delivery and promotion, a seeded project GitOps repository, and a
 merge request to the platform repository that registers the project's Argo CD
 Applications and boundary. Copy this directory as is; every path below is
 relative to this directory, except references to other directories of this
-sample set (`sample-app/...`, `VERIFY-TODO.md`), which point into the full
+sample set (`sample-app/...`, the acceptance README), which point into the full
 sample set.
 
 This is sample material, not part of the product and not covered by product
@@ -17,14 +17,15 @@ support. All names, domains and credentials are fictional placeholders.
 
 ## What the pipeline does
 
-The platform project is created manually on the platform beforehand (series 02
-§9); the pipeline starts from its declaration and exports the platform project's
-manifest. Step numbers follow series 02 §9. Everything runs in the management
+The platform project is created manually on the platform beforehand (see the
+"Managing Platform Configuration and Onboarding Isolated Projects" article); the
+pipeline starts from its declaration and exports the platform project's
+manifest. Step numbers follow that article. Everything runs in the management
 namespace `platform-connectors`, next to the admin-level Connectors it mounts.
 
 | Step | PipelineTask | What it does | Uses |
 |---|---|---|---|
-| 1 | `validate-declaration` | reads ConfigMap `project-<project>` from `platform-connectors`, checks the fields and the naming convention of series 02 §16, derives the Nexus repository list and the environment list | catalog `kubectl` 0.1 |
+| 1 | `validate-declaration` | reads ConfigMap `project-<project>` from `platform-connectors`, checks the fields and the naming convention of the "Managing Platform Configuration and Onboarding Isolated Projects" article, derives the Nexus repository list and the environment list | catalog `kubectl` 0.1 |
 | 1 | `export-platform-project` | `kubectl get <platform-project-kind> <platformProject> -o yaml` without `status`, server-set metadata and the Argo CD / GitOps plugin tracking markers, stored as ConfigMap `onboarding-<project>-register` for step 7 | catalog `kubectl` 0.1 |
 | 1 | `create-namespaces` | creates `<project>`, `<project>-<env>` per environment, `<project>-cd` and `<project>-build` if absent; labels them `cpaas.io/project=<project>`, Pod Security `restricted` (workloads, delivery) or `baseline` (build); binds the onboarding ServiceAccount inside each; creates ServiceAccounts `<project>-delivery` and `<project>-release` in `<project>-cd` | catalog `kubectl` 0.1 |
 | 2 | `gitlab-tenant` | GitLab group `<project>`, subgroups `apps` and `gitops`, group access token (`accessLevel: developer`, set explicitly), Connector `<project>/<project>-gitlab` | `gitlab-connector-automatic-creation` |
@@ -38,7 +39,7 @@ namespace `platform-connectors`, next to the admin-level Connectors it mounts.
 
 Steps 2–5 run in parallel after the namespaces exist. Tool-side work belongs to
 the product Tasks; ordering, declaration parsing, idempotency and registration
-belong to the pipeline (series 02 §10).
+belong to the pipeline (the "Managing Platform Configuration and Onboarding Isolated Projects" article).
 
 **Why step 7 is a second PipelineRun.** A Pipeline cannot be a task of another
 Pipeline, and re-implementing `gitops-repo-update` from its Tasks (`git-clone`,
@@ -83,7 +84,7 @@ commented fallback in the Pipeline; this sample grants no RBAC for it.
   Connectors 1.14 with the GitLab, Harbor, Nexus and SonarQube Connector
   components and the Connectors CSI Driver, Argo CD in namespace `argocd`, and
   the Pipelines-as-Code webhook registration controller configured for
-  `git.example.com` with its central webhook credential (series 02 §11). The
+  `git.example.com` with its central webhook credential (the "Managing Platform Configuration and Onboarding Isolated Projects" article). The
   developer token that onboarding writes into `<project>-gitops-auth` cannot
   manage webhooks, so the controller creates and removes the webhook of the
   project GitOps repository with the central credential. The controller also
@@ -95,6 +96,9 @@ commented fallback in the Pipeline; this sample grants no RBAC for it.
   admin Connectors `gitlab-admin`, `harbor-admin`, `nexus-admin` and
   `sonarqube-admin`, the project declarations published as ConfigMaps
   `project-<name>`, and `templates/render.sh` on its `main` branch.
+- The Harbor automatic-creation Task creates the two projects as private in the
+  tested Connectors 1.14 setup. Verify the effective visibility after onboarding
+  on a target platform before relying on it as an isolation control.
 - The project GitOps template pushed to its own repository,
   `https://git.example.com/platform/gitops-template.git` by default.
 - The platform project (for example `shop`) created on the platform. On ACP
@@ -182,7 +186,7 @@ injects it nowhere. The approvers that take effect are written in the
 project's promotion Pipeline and AccessPolicy (`sample-app/promotion/`) and
 must be kept identical by hand; see "Operating notes and hardening".
 
-`imagePullFrom` (cross-project pulls, series 02 §13) is reported as a warning:
+`imagePullFrom` (cross-project pulls, the "Managing Platform Configuration and Onboarding Isolated Projects" article) is reported as a warning:
 this sample does not implement it.
 
 ## Outputs
@@ -320,8 +324,26 @@ week after each re-run. The pipeline sets no validity for the Harbor and
 Nexus credentials, so rotate those as your security policy requires.
 Place the schedule in the project's idle hours. Re-run a run that started
 before a rotation and fails to authenticate: the new run reads the rotated
-Secret (series 02 §12; Connectors documentation: *Rotation-during-use race*
+Secret (the "Managing Platform Configuration and Onboarding Isolated Projects" article; Connectors documentation: *Rotation-during-use race*
 on the GitLab automatic-creation page).
+
+The ScheduledTrigger, merge-triggered dispatcher, and manual Run Template can
+all use `project-onboarding`. Its first task atomically creates ConfigMap
+`onboarding-<project>-lock` in the management namespace. A competing run fails
+before tenant or credential changes; a successful run releases only its own
+lock in `finally`. Failed/cancelled runs and interrupted cleanup can retain it.
+Read the ConfigMap's `pipelineRun` and `pipelineRunUID`, inspect that run and
+its independently created child runs, and confirm every task has stopped
+before an administrator deletes the lock and retries. Do not clear a live
+run's lock or automatically expire it. The per-project release-Connector RBAC
+file grants delete on this one ConfigMap and get on the Role/RoleBinding the
+dispatcher waits for; add these rules for every new project. Keep rotation and
+active application pipeline windows separate.
+
+When adopting this locking change, pause new onboarding dispatch and schedules,
+wait for existing runs and their children to stop, and synchronize the Pipeline
+and per-project RBAC together before resuming. A run already using an older
+Pipeline definition does not participate in the new lock.
 
 Check a trigger with:
 
@@ -331,7 +353,7 @@ kubectl -n platform-connectors get scheduledtrigger project-onboarding-shop
 
 ## Verify an onboarded project
 
-Selected checks from series 02 §15 (after the merge request of step 7 is
+Selected checks from the "Managing Platform Configuration and Onboarding Isolated Projects" article (after the merge request of step 7 is
 merged):
 
 ```bash
@@ -398,31 +420,32 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   refused by the platform policy `argocd-project-namespace-boundary` (platform
   repository README, "Operating notes and hardening").
 
-## Assumptions to verify
+## Configuration contracts to verify in your environment
 
-These points could not be confirmed from the product documentation or the
-catalog sources used for this sample. Check them in your environment before
-relying on the pipeline.
+These notes explain the API, authorization, and tool behavior the pipeline
+depends on. They include supported paths and environment-specific choices;
+verify the effective settings in your target environment before handoff.
 
-1. **Cross-namespace Connector mounting.** Onboarding needs none: the
-   pipeline runs in `platform-connectors` and mounts the admin Connectors of
-   its own namespace. Promotion and CI do mount across namespaces (promotion in
-   `shop-cd` mounts `shop-registry-readonly` / `shop-prod-registry` from
-   `platform-connectors`; CI in `shop-build` mounts `shop/shop-harbor`). The CI
-   mount is verification item P3-4 of `VERIFY-TODO.md` in this sample set;
-   there is no dedicated check yet for the promotion mounts (P3-13 only checks
-   that the two Connectors exist). Open question for onboarding: whether mounting from another
-   namespace could instead be granted through an AccessPolicy, which would
-   allow a separate onboarding namespace.
+1. **Cross-namespace Connector mounting.** Connectors 1.14 permits the
+   promotion identity in `shop-cd` to mount
+   `platform-connectors/shop-registry-readonly` and
+   `platform-connectors/shop-prod-registry`, and the CI identity in `shop-build`
+   to mount project Connectors when the Role is in the Connector namespace.
+   The acceptance README covers the CI path; keep the promotion mount in the
+   manual verification because the script currently checks that its Connectors
+   exist. Keep Connector-read authorization when enabling AccessPolicy: it
+   governs proxy use and approval, rather than replacing the mount's read
+   prerequisite. Follow the [AccessPolicy guide](https://docs.alauda.io/alauda-devops-connectors/1.14/connectors/concepts/access_policy.html).
 2. **Project-level Connectors of the project.** Step 1 labels namespace
    `<project>` with `cpaas.io/inner-namespace: <project>` so that the Connectors
    written there can be mounted from `<project>-<env>` and `<project>-build`.
    The platform itself creates namespace `<project>`
    with the platform project and sets that same label, so step 1 adopts it.
-   Check whether the platform treats its inner namespace differently
-   once step 1 adds `cpaas.io/project=<project>` to it.
+   Confirm both labels and effective project membership after adoption.
 3. **Permissions of the Connectors proxy.** `rbac/admin-connectors.yaml` grants
-   `get` on the four admin Connectors and on `connectors/proxy`. Once a
+   namespace-wide `get` on Connectors so the `defaultPermission` AccessPolicy
+   can apply, and limits direct `connectors/proxy` access to the four admin
+   Connectors. Once a
    platform administrator turns on `enable-connectors-approval`, every identity
    that mounts a Connector needs `connectors/proxy` with verb `*` (RBAC) or an
    AccessPolicy grant, as well as `get` on the Connector: the CSI driver and
@@ -450,9 +473,10 @@ relying on the pipeline.
 5. **Array results.** Step 1 passes arrays to later steps through the
    `array-result` of the catalog `kubectl` Task; this needs array results enabled
    in Tekton (beta API fields).
-6. **Result paths in a Pipeline-level script.** The `kubectl` scripts write
-   `$(results.string-result.path)` / `$(results.array-result.path)`; the catalog
-   tests use this in TaskRuns, not in Pipelines.
+6. **Result paths in a Pipeline-level script.** The `kubectl` scripts are
+   passed to the catalog Task and write its `$(results.string-result.path)` /
+   `$(results.array-result.path)`. Keep those names aligned with the referenced
+   Task version and read the declared Pipeline results after completion.
 7. **Tools in the catalog images.** Step 1 uses `jq` and the version-suffixed
    `yq-<version>` binary of the catalog `kubectl` image; step 6 uses `glab`,
    `git` and `jq` of the `gitlab-cli` image; step 7 runs `templates/render.sh`
@@ -499,17 +523,17 @@ relying on the pipeline.
     `status` and server-set metadata can be applied by Argo CD to initialize a
     new environment.
 16. **Three runs of the Harbor Task.** `harbor-tenant`, `harbor-staging-readonly`
-    and `harbor-release` are expected to create three separate robot accounts
-    (one per Connector) and not to reduce the permissions another run granted
-    on the same Harbor project.
-17. **Two runs of the GitLab Task.** `gitlab-gitops-writer` is expected to mint
-    a second group token for its own Connector instead of rotating the token of
-    `<project>-gitlab`, and maintainer access is expected to allow the direct
-    commit to `main` of `<project>/gitops/config` that CD to test performs.
-18. **Step 7 PipelineRun.** `gitops-repo-update` 0.1 in `pr` mode is expected to
-    work against the platform repository with the admin GitLab Connector
-    (`gitconfig,gitlabconfig`), to run the update script at the root of the
-    clone, and to expose the ConfigMap workspace as
+    and `harbor-release` use three distinct Connector and robot identities.
+    Check each robot's effective pull/push permissions after reconciliation;
+    the release robot also needs pull on the staging project.
+17. **Two runs of the GitLab Task.** `gitlab-gitops-writer` manages a separate
+    group token for its own Connector. Check that rotating it preserves the
+    `<project>-gitlab` token. Its Maintainer role supports direct test updates
+    on unprotected `main` and can change protection settings; apply the
+    production boundary described in the GitOps template README separately.
+18. **Step 7 PipelineRun.** `gitops-repo-update` 0.1 in `pr` mode uses the admin
+    GitLab Connector (`gitconfig,gitlabconfig`) against the platform repository,
+    runs the update script at the root of the clone, and exposes the ConfigMap workspace as
     `$GITOPS_UPDATE_SCRIPTS_DIR`. Read the outcome of a run from its push and
     merge-request steps, not from `changed`.
 19. **Where the onboarding ServiceAccount may bind roles (residual risk).**
@@ -549,7 +573,7 @@ relying on the pipeline.
 | `"30"` | Pipeline param `token-duration` | token validity in days |
 | `apps`, `gitops`; `<project>`, `<project>-prod`; `^<project>(:.*)?$` | `pipeline/project-onboarding.yaml` | naming convention of GitLab subgroups, Harbor projects and SonarQube keys |
 | `repository:pull,push`, `repository:pull` | `pipeline/project-onboarding.yaml` | Harbor robot permissions per project |
-| `developer`, `maintainer`; `api`, `read_repository`, `write_repository` | `pipeline/project-onboarding.yaml` | GitLab token access levels and scopes: the project token (`developer`) gets `api` + `read_repository`, the GitOps writer (`maintainer`) also `write_repository` |
+| `developer`, `maintainer`; `api`, `read_repository`, `write_repository` | `pipeline/project-onboarding.yaml` | GitLab group-token access levels and scopes: the developer group token gets `api` + `read_repository`, and the GitOps-writer group token (`maintainer`) also gets `write_repository` |
 | `0 2 */3 * *`, `Etc/UTC` | `triggers/shop.yaml` | rotation schedule: every third day at 02:00 UTC; the gap is one to three days, because `*/3` restarts on the first of each month |
 | `shop` | `triggers/shop.yaml`, `rbac/release-connectors-shop.yaml` | project name, one file each per project |
 | `samples.example.com/project` | `run-template/`, `triggers/`, `rbac/`, Pipeline | label key for your own domain |

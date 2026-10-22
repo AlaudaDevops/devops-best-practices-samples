@@ -1,5 +1,11 @@
 # Alauda DevOps best-practice samples
 
+中文入口：[README.zh-CN.md](README.zh-CN.md)。
+
+The articles are under review in [Knowledge PR #859](https://github.com/alauda/knowledge/pull/859). The `main` links below are their publication targets and become available after that PR is merged.
+
+Related knowledge articles: [Overview](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Alauda_DevOps_Best_Practices_Overview.md), [From Commit to Production](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/From_Commit_to_Production_on_ACP.md), and [Managing Platform Configuration and Onboarding Isolated Projects](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Managing_Platform_Configuration_and_Onboarding_Isolated_Projects_with_Argo_CD_and_Tekton_on_ACP.md).
+
 Sample material accompanying the **Alauda DevOps best-practice series**. The
 directories here turn the snippets of the series into files you can read,
 render and adapt: a platform GitOps repository, a project GitOps repository
@@ -45,13 +51,27 @@ line, and acceptance scripts.
 
 ## Layout and run order
 
-| Order | Directory | Series | Status | What it is |
+To explore one part locally, start with the GitOps template or render a platform
+layer. These commands need only Kustomize and do not contact a cluster:
+
+```bash
+kustomize build platform-repo/argocd/apps
+kustomize build platform-repo/components
+kustomize build platform-repo/policies
+for d in gitops-template/envs/*/; do kustomize build "$d"; done
+```
+
+Rendering checks file composition, not CRD admission, credentials, or deployment
+readiness. Onboarding, CI/CD, signing, webhooks, and acceptance need the target
+cluster and external tools. Follow the run order below for the complete path.
+
+| Order | Directory | Related article | Status | What it is |
 |---|---|---|---|---|
-| 1 | [`gitops-template/`](gitops-template/) | 02 §16 | available | per-project GitOps repository template; pushed to its own repository before any onboarding, which seeds from it |
-| 2 | [`platform-repo/`](platform-repo/) | 02 §5–§7 | available | platform GitOps repository (`argocd/apps`, `components`, `policies`, `credentials`, `projects`, `templates`): Argo CD app of apps, baseline policies, admin Connectors, project declarations and boundaries, Pruner / Results configuration, pre-merge validation; `onboarding/` is copied into it before the bootstrap |
-| 3 | [`onboarding/`](onboarding/) | 02 §8–§12 | available | onboarding Pipeline, merge-triggered dispatcher Pipeline, run template, ScheduledTrigger for reconcile and rotation, ServiceAccount and RBAC; deployed by the platform repository, run once per project declaration |
-| 4 | [`sample-app/`](sample-app/) | 01 §3–§7 | available | small application with CI, digest-based delivery and gated promotion |
-| 5 | [`acceptance/`](acceptance/) | 01 §11, 02 §15 | available | acceptance checks as scripts printing `PASS` / `FAIL` per check |
+| 1 | [`gitops-template/`](gitops-template/) | Managing Platform Configuration and Onboarding Isolated Projects | available | per-project GitOps repository template; pushed to its own repository before any onboarding, which seeds from it |
+| 2 | [`platform-repo/`](platform-repo/) | Managing Platform Configuration and Onboarding Isolated Projects | available | platform GitOps repository (`argocd/apps`, `components`, `policies`, `credentials`, `projects`, `templates`): Argo CD app of apps, baseline policies, admin Connectors, project declarations and boundaries, Pruner / Results configuration, pre-merge validation; `onboarding/` is copied into it before the bootstrap |
+| 3 | [`onboarding/`](onboarding/) | Managing Platform Configuration and Onboarding Isolated Projects | available | onboarding Pipeline, merge-triggered dispatcher Pipeline, run template, ScheduledTrigger for reconcile and rotation, ServiceAccount and RBAC; deployed by the platform repository, run once per project declaration |
+| 4 | [`sample-app/`](sample-app/) | From Commit to Production on ACP | available | small application with CI, digest-based delivery and gated promotion |
+| 5 | [`acceptance/`](acceptance/) | From Commit to Production / Managing Platform Configuration | available | acceptance checks as scripts printing `PASS` / `FAIL` per check |
 
 Run order:
 
@@ -73,16 +93,17 @@ Run order:
 4. Push `sample-app/` as the application repository, apply its CD and
    promotion objects (its README says who applies what), and run CI, CD to
    test, promotion and CD to prod.
-5. Run `acceptance/` after the step each script checks: article 02 after the
-   first CI of step 4, article 01 after the first release.
+5. Run `acceptance/` after the step each script checks: the platform checks after
+   onboarding and the first application build, and the delivery checks after the
+   first promoted production deployment.
 
 **Each top-level directory is self-contained.** It has its own README, its
 manifests and scripts use only paths relative to itself, and it can be copied
 to become the root of a separate repository (for example `platform-repo/`
 becomes your platform configuration repository). READMEs and comments also
 point to other directories of this sample set (for example
-`sample-app/promotion/` or `VERIFY-TODO.md`); those references are to the full
-sample set and do not travel with a copied directory.
+`sample-app/promotion/`); those references are to the full sample set and do not
+travel with a copied directory.
 
 ## Replacement points
 
@@ -121,17 +142,18 @@ directory you use.
 
 ## Operating notes and hardening
 
-Each directory's README has its own section with this title. Four points
-apply to the whole sample set (versions used: ACP 4.4, Alauda DevOps
-Pipelines 4.15.1, Connectors 1.14, GitOps 4.4, Kyverno 1.15.9):
+Each directory's README has its own section with this title. Five points
+apply to the whole sample set. The minimum supported Pipelines line is 4.15;
+the other component versions in the prerequisite table are compatibility
+inputs to verify in the target platform:
 
 - **The project boundary is a Kyverno policy.** Alauda GitOps manages the
   AppProject of each platform project; the sample sets only `sourceRepos` and
   `destinations` on it, and the `projects` Application shows that AppProject
   as OutOfSync, which is expected. Put any further restriction into the
-  Kyverno policy, not into that AppProject. The series 02 §6 boundary (no
-  Role, RoleBinding, quota, LimitRange or NetworkPolicy from a project GitOps
-  repository) is the Kyverno policy
+  Kyverno policy, not into that AppProject. The platform article's project boundary (no Role, RoleBinding, quota,
+  LimitRange, NetworkPolicy, PolicyException or AccessPolicy from a project GitOps repository) is the Kyverno
+  policy
   `platform-repo/policies/argocd-project-namespace-boundary.yaml`
   (`platform-repo/README.md`).
 - **PaC without `git_provider.url` sends the token to gitlab.com.**
@@ -178,8 +200,8 @@ after the approval flag is on; AccessPolicies are accepted from then on.
 
 ## Conventions used in every file
 
-- Each YAML file starts with `# Series: <article> <chapter> — <what this file is>`
-  so you can find the text that explains it.
+- Each YAML file starts with a `# Series:` comment naming the related article
+  and, where useful, its section, so you can find the text that explains it.
 - Credentials appear only as `SealedSecret` examples with `<encrypted>` values;
   no plaintext `Secret` is ever committed.
 - Deployment manifests and promotion sources reference application images by
@@ -197,8 +219,12 @@ after the approval flag is on; AccessPolicies are accepted from then on.
   are installed in the namespace that runs them, with a plain `taskRef`
   (`kind: Task`, `name`).
 - Re-run a PipelineRun from its merge request with
-  `/test <pipelinerun-name>`. For complete trigger syntax, see the Pipelines
-  as Code product documentation.
+  `/test <pipelinerun-name> branch:<source-branch>`. To re-run a
+  push-triggered PipelineRun, comment `/test <pipelinerun-name> branch:<branch>`
+  on the latest commit of that branch. For complete trigger syntax, see the
+  [Pipelines as Code product documentation](https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/trigger_pipeline.html).
+  The release-candidate `ci` definition is an exception: its pre-build guard
+  rejects comment events; retry it with a new reviewed push to `main`.
 - Connectors CSI mounts identify the Connector with the `connectors`
   attribute (`<namespace>/<name>`, always with the namespace), not with the
   deprecated `connector.name` / `connector.namespace` pair (Connectors

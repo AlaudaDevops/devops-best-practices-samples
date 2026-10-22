@@ -1,4 +1,4 @@
-# Series: 02 §7/§9 — the fifth Application: onboarding pipeline, Run Template, ScheduledTriggers and their RBAC (onboarding/)
+# Series: the platform configuration article — the fifth Application: onboarding pipeline, Run Template, ScheduledTriggers and their RBAC (onboarding/)
 # Copy the onboarding/ directory of this sample set to onboarding/ at the root
 # of the platform repository; this Application renders it into the management
 # namespace platform-connectors, next to the admin Connectors the pipeline

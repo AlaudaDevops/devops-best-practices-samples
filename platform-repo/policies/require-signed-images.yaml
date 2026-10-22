@@ -1,5 +1,5 @@
-# Series: 02 §5 (01 §6.4, §11) — platform baseline: release images must carry a valid Chains signature (Audit)
-# Deploy-time check of the signing baseline (series 02 §5, "镜像自动签名与证明"):
+# Series: the platform configuration article and the delivery article acceptance section — platform baseline: release images must carry a valid Chains signature (Audit)
+# Deploy-time check of the signing baseline (the "Managing Platform Configuration and Onboarding Isolated Projects" article):
 # every Pod that runs an image from the release project must be signed with the
 # platform's Chains key. As shipped (Audit) an unsigned one is reported in a
 # PolicyReport, not refused; Pods in platform-connectors are excluded. The public key is the `cosign.pub` entry of the Chains
@@ -10,8 +10,13 @@
 # `imageReferences` entry, or use `registry.example.com/*-prod/*` when every
 # project follows the `<project>-prod` naming convention. Keep Audit
 # until the PolicyReports show no false positives, then set `failureAction` to
-# Enforce. Acceptance check 01§11-4 (acceptance/01-commit-to-production.sh in
+# Enforce. Acceptance check delivery-unsigned-image (acceptance/01-commit-to-production.sh in
 # this sample set) reads this policy by name.
+# The release projects in this sample are private. Before switching this policy
+# to Enforce, configure Kyverno's registry credentials (or the equivalent
+# platform image-verification credential) with pull access to every release
+# project and its signature artifacts. The sample intentionally does not create
+# that Secret; the registry login used by the acceptance script is separate.
 # Limits (README "Operating notes and hardening"): the rule selects Pods by
 # image reference, not by namespace, so a Pod in shop-prod that runs an image
 # from any other repository (the staging project, another registry, a host
@@ -53,6 +58,12 @@ spec:
           mutateDigest: false
           verifyDigest: true
           required: true
+          # Pre-create this dockerconfigjson Secret in Kyverno's namespace,
+          # with pull access to each private release project and attachments.
+          # It is separate from workload pull Secrets and client logins.
+          imageRegistryCredentials:
+            secrets:
+              - kyverno-release-registry-read
           attestors:
             - entries:
                 # Chains stores signatures beside each image, so no

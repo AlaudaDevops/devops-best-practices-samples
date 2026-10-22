@@ -1,4 +1,4 @@
-# Series: 01 §6 — sample application promotion: Run Template that fixes repositories, Connectors and identity; only digest and release label are set at run time
+# Series: the delivery article — sample application promotion: Run Template that fixes repositories, Connectors and identity; only digest and release label are set at run time
 # Start it by hand with the digest of a successful CI run (or, after a
 # promotion is approved and done, look for `promoted-digest`). Reference
 # way: render the template with the digest and the
@@ -7,12 +7,12 @@
 # `docker://<staging repository>@sha256:<digest> docker://<release repository>:<label>`
 # and the label in the run form, and type a Token Duration for each of the four
 # Connector workspaces.
-# The repositories are fixed here and re-checked by validate-digest, so a run
-# started from this template cannot promote an image from any other
-# repository. validate-digest compares against the parameters it is given, so a
-# PipelineRun of this Pipeline written by hand in shop-cd can pass other
-# repositories (it still waits for approval); until promotion guardrails 1-3
-# are deployed nothing requires runs to come from this template
+# A PipelineRun rendered from this template carries the repositories fixed in
+# its YAML and validate-digest re-checks them. The console form exposes the
+# mapping and label, however, and validate-digest compares against the
+# parameters it receives; a hand-written PipelineRun in shop-cd can therefore
+# pass other repositories (it still waits for approval). Until promotion
+# guardrails 1-3 are deployed, nothing requires runs to come from this template
 # (sample-app/README.md, "Operating notes and hardening").
 apiVersion: triggers.tekton.dev/v1beta1
 kind: TriggerTemplate
@@ -28,7 +28,8 @@ spec:
     - name: image-digest
       description: Digest (sha256:<64 hex>) of a successful CI build in registry.example.com/shop/hello.
     # Empty on purpose: validate-digest rejects an empty label, so a forgotten
-    # label cannot overwrite an earlier release tag.
+    # label cannot overwrite an earlier release tag. Configure Harbor tag
+    # immutability for the release project as an additional control.
     - name: release-label
       description: Release tag to create in registry.example.com/shop-prod/hello; supply a fresh value on every run.
       default: ""

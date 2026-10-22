@@ -1,4 +1,4 @@
-# Series: 01 §5 — sample application CD to prod: Run Template that proposes a promoted digest for envs/prod through a merge request (submitMode pr)
+# Series: the delivery article — sample application CD to prod: Run Template that proposes a promoted digest for envs/prod through a merge request (submitMode pr)
 # Same catalog Pipeline as run-template-test.yaml, in pr mode: it pushes an
 # automatically named branch and opens a GitLab merge request against main of
 # the project GitOps repository; Argo CD syncs envs/prod to shop-prod after the

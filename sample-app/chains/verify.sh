@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Series: 01 §6.4 — verify the Tekton Chains signature and SLSA provenance of an image, by digest
+# Series: the delivery article — verify the Tekton Chains signature and SLSA provenance of an image, by digest
 # Prints one PASS/FAIL line per check and a summary line; exits non-zero when
 # any check fails.
 #

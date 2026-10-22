@@ -1,4 +1,4 @@
-# Series: 02 §9–§12 — onboarding: Pipeline, merge-triggered dispatcher Pipeline, Run Template, per-project ScheduledTriggers and release-Connector RBAC, ServiceAccount and RBAC
+# Series: the platform configuration article — onboarding: Pipeline, merge-triggered dispatcher Pipeline, Run Template, per-project ScheduledTriggers and release-Connector RBAC, ServiceAccount and RBAC
 # Renders everything this directory holds. Every namespaced object lands in the
 # management namespace platform-connectors, where the admin-level Connectors,
 # the project declarations and the platform repository's PaC Repository live

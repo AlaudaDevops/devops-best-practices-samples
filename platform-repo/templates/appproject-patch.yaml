@@ -1,4 +1,4 @@
-# Series: 02 §6/§7/§13 — template: deployment boundary of a project as a partial AppProject (rendered by onboarding step 7)
+# Series: the platform configuration article — template: deployment boundary of a project as a partial AppProject (rendered by onboarding step 7)
 # A patch, not a full AppProject: the platform creates and synchronizes an
 # AppProject per platform project, so this file carries only the two fields the
 # declaration decides — the repository the project deploys from and the

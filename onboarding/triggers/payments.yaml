@@ -1,4 +1,4 @@
-# Series: 02 §12 — scheduled reconciliation and credential rotation run for project `payments`
+# Series: the platform configuration article — scheduled reconciliation and credential rotation run for project `payments`
 # One file per onboarded project. Every third day the same PipelineRun as a
 # manual onboarding is rendered from the Run Template: the four Connectors
 # Tasks re-mint the long-lived tool credentials (GitLab group token, Harbor
@@ -10,7 +10,7 @@
 # Keep the interval so far below 7 days that one missed run does no harm. The
 # pipeline sets no validity for the Harbor and Nexus credentials, rotate those
 # as your security policy requires, and schedule it when the project's
-# pipelines are idle (series 02 §12).
+# pipelines are idle (the "Managing Platform Configuration and Onboarding Isolated Projects" article).
 apiVersion: tekton.alaudadevops.io/v1alpha1
 kind: ScheduledTrigger
 metadata:

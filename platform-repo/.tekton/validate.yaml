@@ -1,4 +1,4 @@
-# Series: 02 §6/§7 — pre-merge validation: `kustomize build` every directory an Application points at
+# Series: the platform configuration article — pre-merge validation: `kustomize build` every directory an Application points at
 # Pipelines-as-Code runs this PipelineRun on every merge request to main. A
 # directory that does not render makes its whole Argo CD Application stop with
 # "failed to generate manifest", minutes after the merge and far from the
@@ -28,7 +28,7 @@ spec:
   # The check is written inline with two catalog Tasks, clone and render, so
   # the repository needs no Pipeline of its own in the catalog; the Tasks are
   # still taken through the hub resolver. The optional resolver constraint
-  # (policies/pipelinerun-source-baseline.yaml, series 02 §5.1) does not
+  # (policies/pipelinerun-source-baseline.yaml, the "Managing Platform Configuration and Onboarding Isolated Projects" article) does not
   # accept an inline pipelineSpec. As this sample ships the policy, it
   # excludes platform-connectors, where the runs of this file execute, so it
   # does not judge them. If you extend the constraint to that namespace,

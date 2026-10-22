@@ -1,4 +1,4 @@
-# Series: 02 §5/§6/§7 — policy layer: platform baseline ClusterPolicies (policies/)
+# Series: the platform configuration article — policy layer: platform baseline ClusterPolicies (policies/)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

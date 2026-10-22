@@ -1,40 +1,51 @@
 # Acceptance scripts
 
-The acceptance tables of the Alauda DevOps best-practice series written as
-scripts: article 01 ("how do you know you are done", from commit to
-production) and article 02 chapter 15 (project onboarding, plus the namespace
-boundaries of chapter 13).
+The acceptance tables in the [From Commit to Production on ACP](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/From_Commit_to_Production_on_ACP.md)
+and [Managing Platform Configuration and Onboarding Isolated Projects with
+Argo CD and Tekton on ACP](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Managing_Platform_Configuration_and_Onboarding_Isolated_Projects_with_Argo_CD_and_Tekton_on_ACP.md)
+articles have companion scripts. They cover the checks below; CI source and
+scan evidence, promotion-result correlation, GitOps review, and dispatcher
+child-run completion still require the manual checks described here and in
+the articles. The second script covers project and namespace boundaries.
 
 > **Treat a FAIL as "look here".** The scripts read a cluster with the real
 > tools behind it (GitLab, Harbor, Kyverno); expect to adjust names to your
-> environment first. Check `02§15-5` needs the tool image of the seeded
+> environment first. Check `onboarding-validation` needs the tool image of the seeded
 > `.tekton/validate.yaml` to be set (see the prerequisites below).
 
 | Script | Checks |
 |---|---|
-| `01-commit-to-production.sh` | test runs the CI digest (CD Run Template started by hand in this sample) · release tag has the same digest · prod Application `Synced Healthy` · prod runs the release repository pinned to exactly the digest of the release tag; "runs" in both Deployment checks means the Pod template pins the digest and its rollout is complete (observed generation current, all replicas updated and available, no old replica left, waited up to `WAIT_SECONDS`), and a FAIL names the fields that do not hold · unsigned image refused (Enforce) or reported (Audit) by the platform policy `require-signed-images` (platform repository `policies/require-signed-images.yaml`) · the ApprovalTask owned by the promotion run `PROMOTION_RUN` (ApprovalTask → CustomRun → PipelineRun) approved with an approver · release image signature and provenance verify; for a group approval the approving members are printed too |
-| `02-platform-and-onboarding.sh` | rows 2–8 of the 02 §15 table; row 1 (every onboarding run listed in the dispatcher's `onboarding-runs` result is `True`) is not scripted, check it by hand: workload namespaces `restricted`, build namespace `baseline` · four project Connectors ready · test Application `Synced` (`Healthy` only after the first CD run to test of article 01) · `/test validate` starts a run that succeeds (only runs labelled `pipelinesascode.tekton.dev/original-prname=validate` whose `pipelinesascode.tekton.dev/event-type` is `test-comment` count, or `pull_request`, the value that Pipelines-as-Code v0.48.1 announces for a later version; on GitLab the run that opening the merge request starts carries `Merge_Request` and cannot pass it) · cross-project pull refused for authorization, not for a missing image (with a positive control) · deleted RoleBinding re-created by GitOps with a new UID · onboarding re-run succeeds and rotates the Harbor robot tokens by design |
+| `01-commit-to-production.sh` | test runs the CI digest (CD Run Template started by hand in this sample) · release tag has the same digest · prod Application `Synced Healthy` · prod runs the release repository pinned to exactly the digest of the release tag; "runs" in both Deployment checks means the Pod template pins the digest and its rollout is complete (observed generation current, all replicas updated and available, no old replica left, waited up to `WAIT_SECONDS`), and a FAIL names the fields that do not hold · signed positive-control image admitted with an image-specific successful PolicyReport · unsigned image refused (Enforce) or reported (Audit) by the platform policy `require-signed-images` (platform repository `policies/require-signed-images.yaml`) · the ApprovalTask owned by the promotion run `PROMOTION_RUN` (ApprovalTask → CustomRun → PipelineRun) approved with an approver · release image signature and provenance verify; for a group approval the approving members are printed too |
+| `02-platform-and-onboarding.sh` | platform onboarding and namespace-boundary checks: workload namespaces `restricted`, build namespace `baseline` · four project Connectors ready · test Application `Synced` (`Healthy` only after the first test CD run) · `/test validate` starts a run that succeeds (only runs labelled `pipelinesascode.tekton.dev/original-prname=validate` whose `pipelinesascode.tekton.dev/event-type` is `test-comment` count, or `pull_request`, the value that Pipelines-as-Code v0.48.1 announces for a later version; on GitLab the run that opens the merge request starts carries `Merge_Request` and cannot pass it) · cross-project pull refused for authorization, not for a missing image (with a positive control) · deleted RoleBinding re-created by GitOps with a new UID · onboarding re-run succeeds and rotates the Harbor robot tokens by design |
 
 Every check prints exactly one line, `PASS <label>` or `FAIL <label>`, and
 each script ends with `== result: X pass / Y fail ==` and exits non-zero when
-anything failed. Labels start with the article and chapter of the table row
-(for example `02§15-4`).
+anything failed. Labels such as `delivery-signature` and `onboarding-application` are stable
+script-local checklist IDs used to correlate output with this README; they are
+not chapter numbers in the English articles.
 
 ## Running
 
-Every placeholder is an environment variable at the top of each script, with
-the sample values (`shop`, `payments`, `registry.example.com`, ...) as defaults.
+Every placeholder is an environment variable at the top of each script. The
+registry and tool values have sample defaults (`registry.example.com`, ...),
+but `PROJECT` must be set explicitly to an isolated acceptance project before
+either script runs; neither script defaults to a production tenant. For the
+second script, also set a different `OTHER_PROJECT` to another disposable
+acceptance project. Finish the first promotion, production GitOps merge and
+rollout before running the delivery script.
 
 ```bash
 export KUBE_CONTEXT=<context>          # optional; default is the current context
+export PROJECT=<isolated-acceptance-project>
 BUILD_DIGEST=sha256:<digest> RELEASE_LABEL=release-001 PROMOTION_RUN=<pipelinerun> \
-UNSIGNED_IMAGE=registry.example.com/shop-prod/hello@sha256:<digest> \
+UNSIGNED_IMAGE=registry.example.com/"$PROJECT"-prod/acceptance-unsigned@sha256:<digest> \
 COSIGN_PUB=./cosign.pub ./01-commit-to-production.sh
 
-# ALLOW_MUTATING=true lets check 02§15-7 delete the RoleBinding shop-owners
+# ALLOW_MUTATING=true lets check `onboarding-self-healing` delete the RoleBinding <project>-owners
 # (<project>-owners) and wait for GitOps to re-create it; without it that check
 # reports FAIL "skipped" and the run cannot pass.
-PROJECT_IMAGE=registry.example.com/shop/hello@sha256:<digest> \
+OTHER_PROJECT=<second-isolated-acceptance-project> \
+PROJECT_IMAGE=registry.example.com/"$PROJECT"/hello@sha256:<digest> \
 TEST_COMMENT_TIME=<RFC 3339 UTC, just before commenting> \
 ONBOARDING_RERUN=<pipelinerun> ALLOW_MUTATING=true ./02-platform-and-onboarding.sh
 ```
@@ -42,14 +53,14 @@ ONBOARDING_RERUN=<pipelinerun> ALLOW_MUTATING=true ./02-platform-and-onboarding.
 Add `IGNORE_TLOG=true` to the `01-commit-to-production.sh` line on an
 air-gapped platform whose Chains uploads to no transparency log (the
 assumption of the platform policy `require-signed-images`, which sets
-`ignoreTlog: true`); otherwise the signature check `01§11-6` fails looking up
+`ignoreTlog: true`); otherwise the signature check `delivery-signature` fails looking up
 the log entry. Only when the platform keeps signatures in a separate
 repository (optional hardening, `sample-app/chains/README.md`), also add
 `COSIGN_REPOSITORY=<signature repository>` to that line: without it the
-signature check `01§11-6` fails with "no signatures found".
+signature check `delivery-signature` fails with "no signatures found".
 
-Check 6 of `02-platform-and-onboarding.sh` (cross-project pull, row 6 of the
-02 §15 table) prints its lines as `02§15-6a` and `02§15-6b`. 6b runs
+The cross-project pull check in `02-platform-and-onboarding.sh` prints its
+lines as `onboarding-cross-project-positive` and `onboarding-cross-project-negative`. The negative check runs
 only after 6a passed: for a private Harbor project a missing image and a
 refused pull give the same event text, so only the positive control proves
 the image exists. Both probes set `imagePullPolicy: Always`: the positive
@@ -64,22 +75,37 @@ setting which re-checks pull credentials for images already on a node (the
 `AlwaysPullImages` admission plugin, or a kubelet credential verification
 policy other than `NeverVerify`; this sample does not cover either).
 
-In Audit mode check `01§11-4` reads the PolicyReport whose `.scope.uid` is the
+The delivery script first verifies the production signature and provenance
+with cosign. `delivery-signed-image` then requires admission of that digest
+and a matching `pass` report whose message names the verified image
+(`verified image signatures for <image>`); a generic initial pass is not
+sufficient. If it fails, the unsigned check cannot pass.
+
+The pull checks test one direction per invocation. Swap `PROJECT` and
+`OTHER_PROJECT`, use an existing image from the other registry project as
+`PROJECT_IMAGE`, and repeat with the corresponding validation and onboarding
+run inputs to test the opposite direction. Both projects must be disposable;
+the self-healing check can temporarily remove the owners' access.
+
+In Audit mode check `delivery-unsigned-image` reads the PolicyReport whose `.scope.uid` is the
 uid of its probe Pod (Kyverno 1.15 per-resource reports; their results carry
 no `resources` list), so a report left by an earlier run cannot match. The
 check waits up to `WAIT_SECONDS` (default 120) for a `fail` result: the
 report of an unsigned image can say `pass` (`image verified`) first and turn
 to `fail` (`no signatures found`) only later, about 40 s after the Pod is
-created (Kyverno 1.15.9). When you read a
+created. The negative check requires a missing-signature message; a generic
+policy failure or registry login failure does not count. When you read a
 report by hand, wait a minute; a `pass` that follows a real verification
 names the image (`verified image signatures for <image>`).
 
 Needs `kubectl`; `skopeo` for the registry check and `cosign` for the
-signature check of article 01. The Harbor projects are private and the
+signature check of the delivery article. The Harbor projects are private and the
 script passes no credential: log in first with a credential that can read
 the release project (`skopeo login registry.example.com`, or point
 `REGISTRY_AUTH_FILE` at an auth file; `cosign login registry.example.com`
-for the signature check).
+for the signature check). This client login is separate from Kyverno's image
+registry credential: configure Kyverno with pull access to the private release
+projects and their signature artifacts before switching the policy to `Enforce`.
 
 Inputs that earlier steps must produce first:
 
@@ -105,13 +131,13 @@ Inputs that earlier steps must produce first:
   deployed"); the check does not use another write path either, it needs a
   known unsigned image. A platform administrator pushes a throw-away image
   into the release project with the admin Harbor credential (for example
-  `skopeo copy docker://registry.example.com/base/<image>@sha256:<digest> docker://registry.example.com/shop-prod/acceptance-unsigned:once`),
+  `skopeo copy docker://registry.example.com/base/<image>@sha256:<digest> docker://registry.example.com/"$PROJECT"-prod/acceptance-unsigned:once`),
   passes its digest reference here, and deletes the tag after the check.
 - `PROJECT_IMAGE`: an image that CI already pushed to the `shop` Harbor
-  project; onboarding pushes none, so run the first CI of article 01 before
+  project; onboarding pushes none, so run the first CI of the delivery article before
   `02-platform-and-onboarding.sh`.
 - The tool image of `.tekton/validate.yaml` of the project GitOps
-  repository: check `02§15-5` needs the run that `/test validate` starts to
+  repository: check `onboarding-validation` needs the run that `/test validate` starts to
   succeed, and the render task of the seeded file keeps the `<tag>`
   placeholder of the template until it is set. The status of that run shows
   on every merge request of that repository, the production ones included.
@@ -123,11 +149,11 @@ Inputs that earlier steps must produce first:
 
 ## What the scripts change
 
-- A probe Pod named `acceptance-probe` (unsigned-image check in the prod
-  namespace; pull checks in the project and the other project's namespace),
-  deleted after each check. The probe satisfies the `restricted` Pod Security
-  level, so it is refused only for its image, never for its security context.
-- `02§15-7` deletes the RoleBinding `shop-owners` (owners of the declaration,
+- Delivery probes with unique names beginning `acceptance-delivery-`,
+  cleaned up on exit, plus unique `acceptance-onboarding-` pull probes in the
+  project and other project's namespace, also cleaned up on exit. The probes satisfy the `restricted` Pod Security
+  level; inspect other admission policies if they are refused.
+- `onboarding-self-healing` deletes the RoleBinding `shop-owners` (owners of the declaration,
   applied by the platform repository's `projects` Application) and waits for GitOps to
   re-create it. It saves the object and its UID first and passes only when a
   RoleBinding of that name with a different UID appears within

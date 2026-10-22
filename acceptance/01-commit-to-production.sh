@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Series: 01 §11 — acceptance: from commit to production ("how do you know you are done" table)
+# Series: the delivery article — acceptance: from commit to production ("how do you know you are done" table)
 # One PASS/FAIL line per check, then a summary line; exits
 # non-zero when any check fails. Reads the cluster and the registry; the only
-# object it creates is a short-lived probe Pod (check 4), deleted afterwards.
+# objects it creates are short-lived signed/unsigned probe Pods (check 4).
 set -u
 
 # ---- placeholders: replace or export before running --------------------------
-PROJECT="${PROJECT:-shop}"
+PROJECT="${PROJECT:-}"
 APP="${APP:-hello}"                                   # Deployment and container name
 REGISTRY="${REGISTRY:-registry.example.com}"
 STAGING_REPO="${STAGING_REPO:-$REGISTRY/$PROJECT/$APP}"
@@ -37,6 +37,12 @@ ok() { echo "PASS $1"; pass=$((pass + 1)); }
 ko() { echo "FAIL $1"; fail=$((fail + 1)); }
 k() { kubectl ${KUBE_CONTEXT:+--context "$KUBE_CONTEXT"} "$@"; }
 is_digest() { printf '%s\n' "$1" | grep -Eq '^sha256:[0-9a-f]{64}$'; }
+
+if [ -z "$PROJECT" ]; then
+  ko "delivery-safety set PROJECT to an isolated acceptance project before running"
+  printf '== result: %s pass / %s fail ==\n' "$pass" "$fail"
+  exit 1
+fi
 
 # A Deployment runs its .spec.template only once the rollout of that template
 # is complete; the template alone says nothing about a rollout stuck in
@@ -71,18 +77,18 @@ EOF_STATUS
   return 1
 }
 
-# Probe Pod that satisfies the `restricted` Pod Security level, so admission
-# can only reject it for the image. In Audit mode a bare `kubectl run` gets
+# Probe Pod that satisfies the `restricted` Pod Security level. Distinguish
+# other admission failures from image verification. A bare `kubectl run` gets
 # only Kyverno warnings and is then rejected by Pod Security, so no Pod and
 # no PolicyReport exist to check; in Enforce mode Kyverno (verifyImages runs
 # in its mutating webhook, before Pod Security) rejects it first. This probe
 # works in both modes.
-probe_pod() { # $1 namespace, $2 image
-  k -n "$1" apply -f - <<YAML
+probe_pod() { # $1 namespace, $2 image, $3 unique Pod name; create, never overwrite.
+  k -n "$1" create -f - <<YAML
 apiVersion: v1
 kind: Pod
 metadata:
-  name: acceptance-probe
+  name: $3
   labels:
     app.kubernetes.io/part-of: acceptance
 spec:
@@ -103,13 +109,28 @@ spec:
 YAML
 }
 
+# Unique names keep concurrent checks and pre-existing Pods out of cleanup.
+probe_prefix="acceptance-delivery-$(date +%s)-$$"
+signed_probe="${probe_prefix}-signed"
+unsigned_probe="${probe_prefix}-unsigned"
+probe_created=()
+cleanup_probes() { # Remove only Pods this invocation successfully created.
+  local probe_name # A name recorded after a successful create.
+  for probe_name in "${probe_created[@]}"; do
+    k -n "$PROD_NS" delete pod "$probe_name" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  done
+}
+trap cleanup_probes EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 # 1. The digest CI built reaches test, by digest. In this sample the CD Run
 # Template (sample-app/cd/run-template-test.yaml) is started by hand with the
 # IMAGE_DIGEST result of the CI run on main; starting it automatically from a
-# Harbor push event is the reference practice of series 01 §6.3, not part of
+# Harbor push event is the reference practice of the "From Commit to Production on ACP" article, not part of
 # this sample. "Runs" needs both: the Deployment template pins the digest, and
 # the rollout of that template is complete (rollout_complete).
-label="01§11-1 test runs the CI build by digest ($TEST_NS/$APP)"
+label="delivery-ci-digest test runs the CI build by digest ($TEST_NS/$APP)"
 img=$(k -n "$TEST_NS" get deploy "$APP" -o jsonpath="{.spec.template.spec.containers[?(@.name==\"$APP\")].image}" 2>/dev/null)
 if ! is_digest "$BUILD_DIGEST"; then
   ko "$label: set BUILD_DIGEST=sha256:<64 hex>"
@@ -127,7 +148,7 @@ fi
 # registry or the copy) before trusting the release. The Harbor projects are
 # private and no credential is passed here: run `skopeo login` (or set
 # REGISTRY_AUTH_FILE) with read access to the release project first.
-label="01§11-2 release tag $RELEASE_REPO:$RELEASE_LABEL has the CI digest"
+label="delivery-release-tag release tag $RELEASE_REPO:$RELEASE_LABEL has the CI digest"
 # Check 3b compares prod against this digest, so keep it defined even when
 # this check cannot read the registry.
 rel=""
@@ -141,7 +162,7 @@ else
 fi
 
 # 3. The prod Argo CD Application is in sync and healthy.
-label="01§11-3 Argo CD $PROD_APPLICATION Synced Healthy"
+label="delivery-prod-sync Argo CD $PROD_APPLICATION Synced Healthy"
 st=$(k -n "$ARGOCD_NS" get applications.argoproj.io "$PROD_APPLICATION" -o jsonpath='{.status.sync.status} {.status.health.status}' 2>/dev/null)
 if [ "$st" = "Synced Healthy" ]; then ok "$label"; else ko "$label: got '$st'"; fi
 
@@ -150,7 +171,7 @@ if [ "$st" = "Synced Healthy" ]; then ok "$label"; else ko "$label: got '$st'"; 
 # on "$RELEASE_REPO@sha256:" is not enough, because any earlier release in the
 # same repository would pass it. As in check 1, the rollout of that template
 # must also be complete.
-label="01§11-3b prod runs $RELEASE_REPO@<digest of $RELEASE_LABEL>"
+label="delivery-prod-digest prod runs $RELEASE_REPO@<digest of $RELEASE_LABEL>"
 img=$(k -n "$PROD_NS" get deploy "$APP" -o jsonpath="{.spec.template.spec.containers[?(@.name==\"$APP\")].image}" 2>/dev/null)
 if ! is_digest "$rel"; then
   ko "$label: check 2 read no release digest (RELEASE_LABEL, skopeo, registry login), got '$rel'"
@@ -162,44 +183,96 @@ else
   ko "$label: template has the digest but the rollout is not complete after ${WAIT_SECONDS}s:$rollout_msg"
 fi
 
-# 4. An unsigned image is refused by admission in prod: rejected at creation
-# (Enforce) or recorded as a failed result in a PolicyReport (Audit) by the
-# platform policy $SIGNED_POLICY (policies/require-signed-images.yaml of the
-# platform repository; it matches the repositories of the release project).
-# No earlier step produces UNSIGNED_IMAGE: the promotion Run Template is the
-# only path the sample uses to write the release project, and its runs are
-# signed. The sample does not deploy promotion guardrails 1-3
-# (sample-app/README.md, "Operating notes and hardening"); the check does not
-# rely on another way to write it either. A platform administrator pushes a
-# throw-away unsigned image into the release project with the admin Harbor
-# credential for this check and deletes it afterwards (acceptance/README.md).
-label="01§11-4 unsigned image refused or reported in $PROD_NS"
-if [ -z "$UNSIGNED_IMAGE" ]; then
-  ko "$label: set UNSIGNED_IMAGE=<repository>@sha256:<digest>"
+# Verify signatures before probing admission. Result shape: the release image carries a signature and a provenance
+# attestation that verify with the platform key. Chains stores the promotion
+# run's own signature and attestation beside the release image, pushed with
+# the central registry credential of the Chains controller
+# (platform-repo/components/chains-registry-credential.yaml; the promotion
+# pushes through the production registry Connector, which Chains does not
+# use, and the release identity's ServiceAccount holds no registry Secret).
+# Only when the platform keeps signatures in a separate repository (optional
+# hardening, sample-app/chains/README.md) set COSIGN_REPOSITORY.
+signed_image_verified=false
+label="delivery-signature release image signed and attested"
+if ! command -v cosign >/dev/null 2>&1 || [ ! -s "$COSIGN_PUB" ]; then
+  ko "$label: needs cosign and COSIGN_PUB"
+elif [ "${img#"$RELEASE_REPO@sha256:"}" = "$img" ]; then
+  # Check 3b found no release digest to verify.
+  ko "$label: no release digest in $PROD_NS (see 3b)"
 else
-  k -n "$PROD_NS" delete pod acceptance-probe --ignore-not-found >/dev/null 2>&1
-  if out=$(probe_pod "$PROD_NS" "$UNSIGNED_IMAGE" 2>&1); then
-    # Created: only acceptable in Audit mode, where a report must appear.
-    # Kyverno 1.15 writes one PolicyReport per resource and names the resource
-    # in the report's `.scope` (its results carry no `resources` list), so the
-    # report is selected by the uid of this probe Pod: a report left for the
-    # probe Pod of an earlier run cannot match.
-    # The report of an unsigned image can say `pass` ("image verified") first
-    # and turn to `fail` ("no signatures found") only later, about 40 s after
-    # the Pod is created (Kyverno 1.15.9). That first `pass` does not count;
-    # the loop below waits for `fail` until WAIT_SECONDS is over.
-    uid=$(k -n "$PROD_NS" get pod acceptance-probe -o jsonpath='{.metadata.uid}' 2>/dev/null)
+  rel_img="$RELEASE_REPO@${img##*@}"
+  tlog=()
+  [ "$IGNORE_TLOG" = "true" ] && tlog=(--insecure-ignore-tlog=true)
+  if cosign verify --key "$COSIGN_PUB" ${tlog[@]+"${tlog[@]}"} "$rel_img" >/dev/null 2>&1 &&
+    cosign verify-attestation --key "$COSIGN_PUB" --type slsaprovenance ${tlog[@]+"${tlog[@]}"} "$rel_img" >/dev/null 2>&1; then
+    signed_image_verified=true
+    ok "$label ($rel_img)"
+  else
+    ko "$label ($rel_img)"
+  fi
+fi
+
+
+# 4a. Independently verified signed image must be admitted AND produce the
+# image-specific successful verification message, not the initial generic pass.
+label="delivery-signed-image signed image admitted and verified in $PROD_NS"
+signed_admitted=false
+if [ "$signed_image_verified" != true ]; then
+  ko "$label: signature/provenance check must pass first"
+elif out=$(probe_pod "$PROD_NS" "$rel_img" "$signed_probe" 2>&1); then
+  probe_created+=("$signed_probe")
+  # A per-resource PolicyReport must belong to this exact Pod UID and policy.
+  uid=$(k -n "$PROD_NS" get pod "$signed_probe" -o jsonpath='{.metadata.uid}' 2>/dev/null)
+  found=""
+  for _ in $(seq 1 "$WAIT_SECONDS"); do
+    found=$(k -n "$PROD_NS" get policyreports -o jsonpath="{range .items[?(@.scope.uid==\"$uid\")]}{range .results[?(@.policy==\"$SIGNED_POLICY\")]}{.result}{'|'}{.message}{'\n'}{end}{end}" 2>/dev/null \
+      | grep '^pass|' | grep -F 'verified image signatures for' | grep -F "$rel_img")
+    [ -n "$uid" ] && [ -n "$found" ] && break
+    sleep 1
+  done
+  if [ -n "$uid" ] && [ -n "$found" ]; then
+    signed_admitted=true
+    ok "$label"
+  else
+    ko "$label: no image-specific successful PolicyReport within ${WAIT_SECONDS}s"
+  fi
+else
+  ko "$label: signed positive control was rejected: $out"
+fi
+
+# 4b. A known unsigned image from the same private release project must be
+# refused (Enforce), or reported (Audit). Missing registry access, missing
+# images, and other admission failures do not establish signature enforcement.
+label="delivery-unsigned-image unsigned image refused or reported in $PROD_NS"
+if [ "$signed_admitted" != true ]; then
+  ko "$label: signed positive control must pass first"
+elif [ "${UNSIGNED_IMAGE#"${RELEASE_REPO%/*}/"}" = "$UNSIGNED_IMAGE" ] ||
+     ! is_digest "${UNSIGNED_IMAGE##*@}" || [ "$UNSIGNED_IMAGE" = "$rel_img" ]; then
+  ko "$label: set a different unsigned digest in ${RELEASE_REPO%/*}/"
+else
+  if out=$(probe_pod "$PROD_NS" "$UNSIGNED_IMAGE" "$unsigned_probe" 2>&1); then
+    probe_created+=("$unsigned_probe")
+    uid=$(k -n "$PROD_NS" get pod "$unsigned_probe" -o jsonpath='{.metadata.uid}' 2>/dev/null)
     found=""
     for _ in $(seq 1 "$WAIT_SECONDS"); do
-      found=$(k -n "$PROD_NS" get policyreports -o jsonpath="{range .items[?(@.scope.uid==\"$uid\")]}{range .results[?(@.policy==\"$SIGNED_POLICY\")]}{.result}{'\n'}{end}{end}" 2>/dev/null | grep -x fail)
+      found=$(k -n "$PROD_NS" get policyreports -o jsonpath="{range .items[?(@.scope.uid==\"$uid\")]}{range .results[?(@.policy==\"$SIGNED_POLICY\")]}{.result}{'|'}{.message}{'\n'}{end}{end}" 2>/dev/null \
+        | grep '^fail|' | grep -Ei 'no signatures found|no matching signatures|signature.*not found')
       [ -n "$uid" ] && [ -n "$found" ] && break
       sleep 1
     done
-    if [ -n "$found" ]; then ok "$label (Audit: reported)"; else ko "$label: Pod admitted and no failed PolicyReport result"; fi
+    if [ -n "$uid" ] && [ -n "$found" ]; then
+      ok "$label (Audit: reported; enforcement not demonstrated)"
+    else
+      ko "$label: no unsigned-signature failure within ${WAIT_SECONDS}s; inspect the report"
+    fi
   else
-    if printf '%s\n' "$out" | grep -qi "$SIGNED_POLICY"; then ok "$label (Enforce: rejected)"; else ko "$label: rejected for another reason: $out"; fi
+    if printf '%s\n' "$out" | grep -Fqi "$SIGNED_POLICY" &&
+       printf '%s\n' "$out" | grep -Eqi 'no signatures found|no matching signatures|signature.*not found'; then
+      ok "$label (Enforce: rejected)"
+    else
+      ko "$label: rejection does not establish unsigned-image denial: $out"
+    fi
   fi
-  k -n "$PROD_NS" delete pod acceptance-probe --ignore-not-found >/dev/null 2>&1
 fi
 
 # 5. The approval of this promotion is on record: the ApprovalTask that
@@ -213,7 +286,7 @@ fi
 # or another run's ApprovalTask, cannot be picked. For a group approver the
 # response carries the group name; the approving people are listed in its
 # groupMembers, so both are printed.
-label="01§11-5 ApprovalTask of promotion run $CD_NS/${PROMOTION_RUN:-<unset>} approved with an approver"
+label="delivery-approval ApprovalTask of promotion run $CD_NS/${PROMOTION_RUN:-<unset>} approved with an approver"
 at=""
 if [ -z "$PROMOTION_RUN" ]; then
   ko "$label: set PROMOTION_RUN=<promotion PipelineRun name in $CD_NS>"
@@ -242,32 +315,6 @@ else
   fi
 fi
 
-# 6. Result shape: the release image carries a signature and a provenance
-# attestation that verify with the platform key. Chains stores the promotion
-# run's own signature and attestation beside the release image, pushed with
-# the central registry credential of the Chains controller
-# (platform-repo/components/chains-registry-credential.yaml; the promotion
-# pushes through the production registry Connector, which Chains does not
-# use, and the release identity's ServiceAccount holds no registry Secret).
-# Only when the platform keeps signatures in a separate repository (optional
-# hardening, sample-app/chains/README.md) set COSIGN_REPOSITORY.
-label="01§11-6 release image signed and attested"
-if ! command -v cosign >/dev/null 2>&1 || [ ! -s "$COSIGN_PUB" ]; then
-  ko "$label: needs cosign and COSIGN_PUB"
-elif [ "${img#"$RELEASE_REPO@sha256:"}" = "$img" ]; then
-  # Check 3b found no release digest to verify.
-  ko "$label: no release digest in $PROD_NS (see 3b)"
-else
-  rel_img="$RELEASE_REPO@${img##*@}"
-  tlog=()
-  [ "$IGNORE_TLOG" = "true" ] && tlog=(--insecure-ignore-tlog=true)
-  if cosign verify --key "$COSIGN_PUB" ${tlog[@]+"${tlog[@]}"} "$rel_img" >/dev/null 2>&1 &&
-    cosign verify-attestation --key "$COSIGN_PUB" --type slsaprovenance ${tlog[@]+"${tlog[@]}"} "$rel_img" >/dev/null 2>&1; then
-    ok "$label ($rel_img)"
-  else
-    ko "$label ($rel_img)"
-  fi
-fi
 
 echo "== result: $pass pass / $fail fail =="
 [ "$fail" -eq 0 ]

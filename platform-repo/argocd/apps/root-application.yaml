@@ -1,4 +1,4 @@
-# Series: 02 §6 — root Application (app of apps): manages every Application in this directory
+# Series: the platform configuration article — root Application (app of apps): manages every Application in this directory
 # Create it once with `kubectl apply -k argocd/apps/`; afterwards the repository owns it.
 apiVersion: argoproj.io/v1alpha1
 kind: Application

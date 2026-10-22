@@ -1,13 +1,12 @@
-# Series: 01 §3.3 — sample application CI on main: build, scan and push the staging image that CD and promotion consume
-# Pipelines-as-Code runs this PipelineRun on every push to main (a merged
-# request); these runs are what pushes to registry.example.com/shop/hello,
-# the repository the sample's CD-to-test and promotion Run Templates use.
-# Before starting one of them, check that the digest comes from a run of this
-# file that ended Succeeded (README.md, "Flow"). Merge requests run
-# ci-merge-request.yaml next to this file instead. The repository holds only
+# Series: the delivery article — sample application CI on main: build, scan and push the staging image that CD and promotion consume
+# Pipelines-as-Code runs this PipelineRun on pushes to main (a merged request).
+# A named `/test ci` command can bypass PaC event annotations. The pre-build
+# guard below fails every event except a push from main before build-image
+# runs; use ci-merge-request.yaml for comment-triggered validation and merge
+# requests. The repository holds only
 # "when to run and which parameters"; the build logic lives in the catalog.
-# Run or re-run it from a comment on the commit that is the HEAD of main with:
-#   /test ci branch:main
+# To retry release-candidate CI, submit a new reviewed push to main. A comment
+# retry intentionally fails the pre-build guard, including on main.
 # The PaC Repository for this repository (shop/apps/hello) lives in the build
 # namespace (shop-build, Pod Security `baseline`), because buildah cannot run
 # under the `restricted` level enforced on the workload namespaces. Onboarding
@@ -25,10 +24,9 @@ spec:
   # Resolver-form pipelineRef with an explicit version: upgrading the build logic
   # means changing `version` here through a merge request.
   # python-image-build-scan-deploy 0.3 is used as a language-neutral "clone ->
-  # build Containerfile -> scan" line: its Python pre-build step runs only when
-  # preBuildScript is set, the SonarQube step only when sonarURL is set, and
-  # the deploy step only when workloadName is set, so all three are skipped
-  # here. The Go compile and unit tests run inside the multi-stage
+  # build Containerfile -> scan" line: pre-build checks the trusted event;
+  # SonarQube and deployment are skipped when their inputs are empty.
+  # The Go compile and unit tests run inside the multi-stage
   # Containerfile.
   pipelineRef:
     resolver: hub
@@ -46,6 +44,25 @@ spec:
       value: "{{ repo_url }}"
     - name: gitRevision
       value: "{{ revision }}"
+    # Use PaC's actual Pod annotations through a read-only downward-API mount.
+    # Comment arguments can override {{ event_type }} and branch variables,
+    # so those template variables are not an authorization source. The
+    # catalog's build-image task depends on pre-build; failures prevent push.
+    - name: pythonImage
+      value: registry.example.com/catalog/python:<tag>
+    - name: preBuildRequirementsFile
+      value: ""
+    - name: preBuildScript
+      value: |
+        set -eu
+        # python 0.2 exposes the bound workspace path in this environment
+        # variable. No repository script or package is executed by this check.
+        [ "${WORKSPACE_PIP_CONF_BOUND:-false}" = true ] || exit 1
+        TRIGGER_DIR="$WORKSPACE_PIP_CONF_PATH"
+        [ "$(cat "$TRIGGER_DIR/event-type")" = push ] \
+          || { echo "Release-candidate CI requires a push event" >&2; exit 1; }
+        case "$(cat "$TRIGGER_DIR/source-branch")" in main|refs/heads/main) ;; *) exit 1 ;; esac
+        case "$(cat "$TRIGGER_DIR/target-branch")" in main|refs/heads/main) ;; *) exit 1 ;; esac
     # Tag the image with the commit SHA for humans; delivery never uses this
     # tag. CD and promotion take the digest that buildah reports as the
     # `IMAGE_DIGEST` result of the `build-image` task (see README.md).
@@ -74,6 +91,23 @@ spec:
         - --db-repository
         - registry.example.com/mirror/trivy-db:2
   workspaces:
+    # Reuse the catalog's optional pre-build config workspace for trigger
+    # metadata only. There is no pip.conf and dependency installation is off.
+    # Tekton propagates PaC annotations from PipelineRun -> TaskRun -> Pod.
+    - name: pip-conf
+      projected:
+        sources:
+          - downwardAPI:
+              items:
+                - path: event-type
+                  fieldRef:
+                    fieldPath: metadata.annotations['pipelinesascode.tekton.dev/event-type']
+                - path: source-branch
+                  fieldRef:
+                    fieldPath: metadata.annotations['pipelinesascode.tekton.dev/source-branch']
+                - path: target-branch
+                  fieldRef:
+                    fieldPath: metadata.annotations['pipelinesascode.tekton.dev/branch']
     - name: source
       volumeClaimTemplate:
         spec:
