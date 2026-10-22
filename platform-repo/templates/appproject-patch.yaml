@@ -12,7 +12,7 @@
 # Application shows this object as OutOfSync, which is expected. Put any
 # further restriction into the policy named below, not into this patch. The
 # kinds a project may not deploy (Role, RoleBinding, ResourceQuota, LimitRange,
-# NetworkPolicy) are refused by
+# NetworkPolicy, PolicyException, AccessPolicy) are refused by
 # policies/argocd-project-namespace-boundary.yaml. Cluster-scoped kinds are
 # refused because the synchronized AppProject has no clusterResourceWhitelist
 # (README "Operating notes and hardening").

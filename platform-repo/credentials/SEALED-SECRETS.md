@@ -1,5 +1,7 @@
 # Sealed Secrets in the credential layer
 
+中文版本：[SEALED-SECRETS.zh-CN.md](SEALED-SECRETS.zh-CN.md)。
+
 This directory holds the **admin-level Connectors** that the onboarding pipeline
 uses to create projects, accounts and tokens in GitLab, Harbor, Nexus and
 SonarQube. Each Connector needs a credential. Those credentials are stored in git

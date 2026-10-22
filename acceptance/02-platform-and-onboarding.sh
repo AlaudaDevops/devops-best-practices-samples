@@ -26,7 +26,8 @@ EXPECTED_CONNECTORS="${EXPECTED_CONNECTORS:-4}"
 # Onboarding pushes no image: run the first CI of the delivery article (sample-app/) on
 # main before check 6, or the pull checks cannot tell "missing" from "denied".
 PROJECT_IMAGE="${PROJECT_IMAGE:-}"                           # registry.example.com/shop/hello@sha256:...
-DRIFT_ROLEBINDING="${DRIFT_ROLEBINDING:-$PROJECT-owners}"   # rendered from the platform repository template rolebinding-owners.yaml
+# Only a labelled, subject-free acceptance binding may be deleted.
+DRIFT_ROLEBINDING="${DRIFT_ROLEBINDING:-$PROJECT-self-healing-probe}"
 ALLOW_MUTATING="${ALLOW_MUTATING:-false}"
 TEST_COMMENT_TIME="${TEST_COMMENT_TIME:-}"   # RFC 3339 UTC time just before commenting /test validate branch:<source-branch> on a merge request
 ONBOARDING_NS="${ONBOARDING_NS:-platform-connectors}"
@@ -247,8 +248,10 @@ else
   fi
 fi
 
-# 7. A manual change is reverted by GitOps (selfHeal): delete a RoleBinding
-# that onboarding manages and wait for it to come back. The UID tells the
+# 7. A manual change is reverted by GitOps (selfHeal): delete the disposable,
+# subject-free RoleBinding that onboarding renders and wait for it to come back.
+# The probe label and absence of subjects prevent deleting an access grant.
+# The UID tells the
 # re-created object from the original one: a delete that was refused or has not
 # completed leaves the original in place, which must not count as restored.
 # The object is saved first and re-created by the script when GitOps does not
@@ -258,6 +261,12 @@ if [ "$ALLOW_MUTATING" != "true" ]; then
   ko "$label: skipped, set ALLOW_MUTATING=true to run"
 elif ! old_uid=$(k -n "$PROJECT" get rolebinding "$DRIFT_ROLEBINDING" -o jsonpath='{.metadata.uid}' 2>/dev/null) || [ -z "$old_uid" ]; then
   ko "$label: RoleBinding does not exist before the test"
+# Read the UID, marker and every subject together; an API read failure must
+# not be mistaken for an empty subjects list.
+elif ! binding_state=$(k -n "$PROJECT" get rolebinding "$DRIFT_ROLEBINDING" \
+  -o jsonpath='{.metadata.uid}{"|"}{.metadata.labels.samples\.example\.com/acceptance-probe}{"|"}{.subjects[*]}' 2>/dev/null) \
+  || [ "$binding_state" != "$old_uid|self-healing|" ]; then
+  ko "$label: requires a readable, labelled, subject-free self-healing probe with the original UID; nothing deleted"
 elif ! saved=$(mktemp "${TMPDIR:-/tmp}/acceptance-rolebinding.XXXXXX") ||
   ! k -n "$PROJECT" get rolebinding "$DRIFT_ROLEBINDING" -o yaml --show-managed-fields=false >"$saved" 2>/dev/null; then
   ko "$label: could not save the RoleBinding before deleting it, nothing deleted"

@@ -27,7 +27,7 @@ BUILD_DIGEST=sha256:<digest> RELEASE_LABEL=release-001 PROMOTION_RUN=<pipelineru
 UNSIGNED_IMAGE=registry.example.com/"$PROJECT"-prod/acceptance-unsigned@sha256:<digest> \
 COSIGN_PUB=./cosign.pub ./01-commit-to-production.sh
 
-# ALLOW_MUTATING=true 会让自愈检查删除 <project>-owners，等待 GitOps 重建；
+# ALLOW_MUTATING=true 会让自愈检查删除专用的 <project>-self-healing-probe，等待 GitOps 重建；
 # 不设置时该项为 FAIL skipped，整次运行不会全通过。
 OTHER_PROJECT=<second-isolated-acceptance-project> \
 PROJECT_IMAGE=registry.example.com/"$PROJECT"/hello@sha256:<digest> \
@@ -37,7 +37,7 @@ ONBOARDING_RERUN=<pipelinerun> ALLOW_MUTATING=true ./02-platform-and-onboarding.
 
 在没有透明日志的 air-gapped 环境中给第一个命令增加 `IGNORE_TLOG=true`。如果签名保存在独立仓库，再设置 `COSIGN_REPOSITORY=<signature repository>`；否则 `delivery-signature` 会报找不到签名。
 
-跨项目拉取每次只验证一个方向。交换 `PROJECT`、`OTHER_PROJECT` 和 `PROJECT_IMAGE`，再用对应的 onboarding 和 validation 运行重做另一方向。两个项目都必须是可丢弃的验收项目，因为自愈检查会暂时删除项目负责人 RoleBinding。
+跨项目拉取每次只验证一个方向。交换 `PROJECT`、`OTHER_PROJECT` 和 `PROJECT_IMAGE`，再用对应的 onboarding 和 validation 运行重做另一方向。两个项目都必须是可丢弃的验收项目。自愈检查前，先合并并同步包含专用 `<project>-self-healing-probe` RoleBinding 的登记 MR；已有项目需要通过登记更新补入该对象。
 
 ## 结果判定要点
 
@@ -58,7 +58,7 @@ ONBOARDING_RERUN=<pipelinerun> ALLOW_MUTATING=true ./02-platform-and-onboarding.
 ## 脚本会修改什么
 
 - 交付探针使用 `acceptance-delivery-*` 唯一名称，平台探针使用 `acceptance-onboarding-*`，退出时只清理本次成功创建的对象。
-- `onboarding-self-healing` 会保存 `shop-owners` 原对象和 UID，删除后等待 Argo CD 以新 UID 恢复；超时会尝试用保存的对象恢复，并在 FAIL 中说明结果。只有设置 `ALLOW_MUTATING=true` 才会执行删除。
+- `onboarding-self-healing` 使用 `templates/rolebinding-self-healing-probe.yaml` 渲染的专用 `<project>-self-healing-probe` RoleBinding，不删除项目负责人授权。该对象没有 subjects，删除它不会移除任何人的权限。脚本要求 `samples.example.com/acceptance-probe: self-healing` 标签且没有 subjects；对象缺失或改用真正的权限绑定时，会在删除前失败。保存原对象和 UID 后，脚本等待 Argo CD 以新 UID 重建；超时会尝试从副本恢复，并保持 FAIL。只有设置 `ALLOW_MUTATING=true` 才会执行删除。
 - `/test validate branch:<source-branch>` 评论和 onboarding 重跑仍需人工先触发，再把时间和 PipelineRun 名称传给脚本。轮换检查按 `tekton.dev/pipelineTask` 读取三个 Harbor Task 的 `robot-token-rotated` 结果，预期为 `true`。
 
 脚本输出只能说明当前集群的这些检查结果，不能替代人工审核，也不能把离线 fixture、Kustomize 渲染或 server-side dry-run 记录成集群验收通过。

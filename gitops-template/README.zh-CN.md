@@ -35,7 +35,7 @@ Argo CD 为每个 `envs/<env>/` 目录渲染一个 Application。
 
 ### 镜像只使用 digest
 
-Manifest 使用 `registry.example.com/<project>/<image>@sha256:<digest>`，不使用 tag。晋级流水线只修改 `envs/<env>/kustomization.yaml` 中 `images` 条目的 `digest`。播种时 `_prod` 已将 `newName` 指到 `<project>-prod`，所以生产流水线只写 digest。第一次晋级前生产 overlay 保留 `<digest>` 占位符，Application 不会启动 Pod。
+Manifest 使用 `registry.example.com/<project>/<image>@sha256:<digest>`，不使用 tag。测试 CD 用 `kustomize edit set image` 更新 `envs/test/kustomization.yaml`，首次更新可能重新序列化文件并补入 `newName`。生产 CD 只修改 `envs/prod/kustomization.yaml` 中的 `digest:` 一行；播种时 `_prod` 已将 `newName` 指到 `<project>-prod`。第一次晋级前生产 overlay 保留 `<digest>` 占位符，Pod 无法正常启动。
 
 ### 合并请求校验使用平台任务库
 
@@ -50,6 +50,8 @@ Argo CD 部署 `main` 上的内容，因此 `main` 是项目的部署边界：
 - 开通使用项目的 developer group token，并设置 `pipelinerun_provenance: default_branch`，所以 `.tekton/` 按已合并定义运行。
 - CD 使用独立的 `<project>-gitops-writer` maintainer token：测试环境直接提交到 `main`，生产环境提交合并请求。
 - 示例不会自动配置 GitLab 分支保护和 CODEOWNERS。持有该 Maintainer token 的人仍能直接修改 `envs/prod`、分支保护和 code owner 设置。生产环境应使用只能创建合并请求、不能修改保护或直接合并的项目级 writer，并将生产仓库或分支与测试写入路径分开。
+
+项目 Developer token 的 `api` scope 也允许通过仓库接口写入未保护的分支；缺少 `write_repository` 不等于只读。管理员配置并验证保护前，不能把 `main` 当作已经强制执行的评审边界。
 
 如果 GitLab 版本支持强制 Code Owner 审批，可在受保护生产路径加入：
 

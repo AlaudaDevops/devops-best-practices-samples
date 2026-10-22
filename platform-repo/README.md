@@ -320,6 +320,7 @@ repository; it reads `projects/<project>.yaml` and writes:
 | `projects/<project>/appproject-patch.yaml` | `templates/appproject-patch.yaml` | source repository and one destination per environment |
 | `projects/<project>/application-<env>.yaml` | `templates/application.yaml` | one Argo CD Application per environment |
 | `projects/<project>/rolebinding-owners.yaml` | `templates/rolebinding-owners.yaml` | `admin` in namespace `<project>` for the `owners` groups |
+| `projects/<project>/rolebinding-self-healing-probe.yaml` | `templates/rolebinding-self-healing-probe.yaml` | Disposable, subject-free RoleBinding for self-healing acceptance; grants access to nobody |
 | `projects/<project>/connector-mount-ci.yaml` | `templates/connector-mount-ci.yaml` | Role and RoleBinding `<project>-ci-mount` in `<project>`: `get` and `connectors/proxy` `*` on the Connectors `<project>-harbor`, `<project>-sonarqube` and `<project>-nexus` for ServiceAccount `default` in `<project>-build`, so the application CI can mount it |
 | `projects/<project>/connector-mount-delivery.yaml` | `templates/connector-mount-delivery.yaml` | Role and RoleBinding `<project>-delivery-mount` in `<project>-cd`: `get` and `connectors/proxy` `*` on Connector `<project>-gitops-writer` for `<project>-delivery`, so CD can mount it |
 | `projects/<project>/kustomization.yaml` | render.sh | lists the files above |
@@ -396,9 +397,11 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   dispatcher create the onboarding runs in `platform-connectors` through a
   ServiceAccount that may only create PipelineRuns there (see the Pipelines-as-Code
   [Advanced Repository Configuration](https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/advanced_repository_config.html)).
-- **The onboarding ServiceAccount can use the admin Secrets.** RBAC gives it
-  no Secret API access in `platform-connectors`, but it may create
-  PipelineRuns there, and a run's Pods can mount any Secret of the namespace.
+- **The onboarding ServiceAccount can use the admin Secrets.** RBAC grants it
+  no direct read/update access to the admin Secrets. It does grant create and
+  named read/update access for project release-Connector Secrets in
+  `platform-connectors`. It may also create PipelineRuns there, and a run's
+  Pods can mount any Secret of the namespace.
   Anyone who can create Pods or PipelineRuns in `platform-connectors`, or run
   as that ServiceAccount, has the admin credentials. Keep that namespace to
   platform administrators; optionally add a Kyverno rule that lets
@@ -421,7 +424,9 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   namespace. A reviewer who misses
   an extra file in an onboarding merge request grants it. Hardening: a
   separate AppProject for the `projects` Application that allows only
-  Application, AppProject, ConfigMap, RoleBinding and the platform project.
+  Application, AppProject, ConfigMap, Role, RoleBinding and the platform
+  project. Role is needed for the generated Connector-mount grants; removing
+  it would also block valid project registration.
 - **Promotion guardrails are not in the baseline.** `policies/` has no
   promotion rules. Wherever a production Connector exists, rules 1–3 of the
   Catalog page *Constrain Artifact Promotion with Kyverno*

@@ -21,6 +21,7 @@ CLUSTER="$3"
 ARGOCD_NS="$4"
 export PROJECT REPO_URL CLUSTER ARGOCD_NS
 
+# Report a rendering prerequisite failure before proposing any Git change.
 fail() { echo "render.sh: $*" >&2; exit 1; }
 
 # The catalog kubectl image names yq with its version; fall back to plain yq.
@@ -90,6 +91,14 @@ for owner in $("$YQ" e '.owners[]' "$DECL"); do
 done
 [ "$("$YQ" e '.subjects | length' "${OUT}/rolebinding-owners.yaml")" != "0" ] || fail "${DECL} lists no owners"
 FILES="${FILES} rolebinding-owners.yaml"
+
+# Render a subject-free probe separately from the owners' actual permission.
+"$YQ" e '. head_comment = strenv(HEADER)
+  | .metadata.name = strenv(PROJECT) + "-self-healing-probe"
+  | .metadata.namespace = strenv(PROJECT)
+  | .metadata.labels."app.kubernetes.io/part-of" = strenv(PROJECT)' \
+  templates/rolebinding-self-healing-probe.yaml > "${OUT}/rolebinding-self-healing-probe.yaml"
+FILES="${FILES} rolebinding-self-healing-probe.yaml"
 
 # Connector mounts: `get` on the Connectors each run mounts, for the CI
 # ServiceAccount of <project>-build (<project>/<project>-harbor and the other

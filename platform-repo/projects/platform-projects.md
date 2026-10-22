@@ -1,8 +1,10 @@
 # Platform projects
 
+中文版本：[platform-projects.zh-CN.md](platform-projects.zh-CN.md)。
+
 A platform project is a Kubernetes resource on the platform, but it is **created
-manually on the platform first** (the "Managing Platform Configuration and Onboarding Isolated Projects" article, step 1). Onboarding does not
-block on it: the administrator creates the project in the platform console, then
+manually on the platform first** (the "Managing Platform Configuration and Onboarding Isolated Projects" article, step 1). Onboarding requires
+it to exist: the administrator creates the project in the platform console, then
 the onboarding pipeline exports its manifest (`kubectl get <platform-project-kind>
 <name> -o yaml` without `status` and server-set metadata) and proposes it as
 `<project>/platform-project.yaml` in the same merge request that registers the
@@ -38,4 +40,12 @@ of which platform projects must exist before a declaration is merged.
    `policies/require-signed-images.yaml`. Onboarding does not edit that
    policy; without the entry, the project's release images are not verified.
 6. Open a merge request; the validation pipeline (`../.tekton/validate.yaml`)
-   renders every directory before merge.
+   renders every directory before merge. Separately extend the central Chains
+   credential's push access and Kyverno's read credential for the new release
+   project and its signature artifacts.
+
+After the merge, the dispatcher waits for the exact declaration ConfigMap and
+the project's named release-Connector Role and RoleBinding. Check its
+`onboarding-runs` result and every child run before treating onboarding as
+complete. Declarations present before bootstrap need the initial manual run
+described in the [bootstrap instructions](../README.md#bootstrap).

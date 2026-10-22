@@ -34,7 +34,7 @@ English version：[README.md](README.md)。
 
 - `platform-connectors` 是唯一管理 namespace，保存管理员 Connector、SealedSecret、声明、平台仓库 PaC Repository 和 onboarding 流水线；项目成员不应访问它。
 - 项目应用清单放在各自 GitOps 仓库；平台仓库只保存每个项目的 Argo CD Application、AppProject patch、负责人 RoleBinding、Connector mount 授权和导出的平台项目。
-- 只提交 SealedSecret，不提交明文 Secret；加密流程见 [`credentials/SEALED-SECRETS.md`](credentials/SEALED-SECRETS.md)。
+- 只提交 SealedSecret，不提交明文 Secret；加密流程见[Sealed Secrets 中文说明](credentials/SEALED-SECRETS.zh-CN.md)。
 - namespace 由管理员或 onboarding 创建，不由 Argo CD 创建；每个 namespace 只有一个创建者。
 - 策略先用 `Audit` 观察 PolicyReport，再切换 `Enforce`。`argocd-project-namespace-boundary.yaml` 是项目边界，默认直接 `Enforce`。
 - `pipelinerun-source-baseline.yaml` 是可选约束，只允许 `cluster`、`hub`、`git` resolver 并拒绝 inline `pipelineSpec`；基线还包括裸 TaskRun、验签、onboarding RoleBinding scope 和 reports 读授权策略。
@@ -79,7 +79,9 @@ kubectl -n argocd get secret \
 
 ## 合并触发开通
 
-`.tekton/onboard-changed-projects.yaml` 监听 `main` 上 `projects/<project>.yaml` 的变更，计算提交与第一个 parent 的差异，为每个变更项目等待 Argo CD 发布 `project-<name>` ConfigMap，然后启动 `onboard-<name>-*`。第 7 步生成的 `projects/<project>/` 文件合并后，`projects` Application 才会应用它们。
+`.tekton/onboard-changed-projects.yaml` 监听 `main` 上 `projects/<project>.yaml` 的变更，计算提交与第一个 parent 的差异。每个项目都要等到 Argo CD 发布内容完全匹配的 `project-<name>` ConfigMap，并能读取 `project-onboarding-release-connectors-<name>` Role 和 RoleBinding，才会启动 `onboard-<name>-*`。第 7 步生成的 `projects/<project>/` 文件合并后，`projects` Application 才会应用它们。
+
+路径触发在 Pipelines 4.15 中属于 Technology Preview。平台仓库应使用 merge commit 或 squash 合并；多提交 fast-forward 只比较最后一个提交，可能漏掉更早提交中的声明。新增项目需要同一个 MR 登记声明 generator、发布 Connector RBAC、ScheduledTrigger、Kustomize 资源和验签仓库，详见[平台项目说明](projects/platform-projects.zh-CN.md)。
 
 重复运行没有变化的声明不会产生新的合并请求；是否有变化应检查子运行的 push 和 MR 步骤，而不是只看 `changed` result。
 
@@ -91,6 +93,7 @@ kubectl -n argocd get secret \
 | `appproject-patch.yaml` | `templates/appproject-patch.yaml` | 每个环境的 source repo 和 destination |
 | `application-<env>.yaml` | `templates/application.yaml` | 每个环境一个 Argo CD Application |
 | `rolebinding-owners.yaml` | `templates/rolebinding-owners.yaml` | 项目 owners 的 `admin` 权限 |
+| `rolebinding-self-healing-probe.yaml` | `templates/rolebinding-self-healing-probe.yaml` | 无 subject、不向任何人授权的专用自愈验收对象 |
 | `connector-mount-ci.yaml` | `templates/connector-mount-ci.yaml` | build namespace 的 CI Connector 读取和 proxy 权限 |
 | `connector-mount-delivery.yaml` | `templates/connector-mount-delivery.yaml` | CD namespace 的 GitOps writer 权限 |
 | `kustomization.yaml` | `render.sh` | 列出以上文件并加入 `projects/kustomization.yaml` |
@@ -112,12 +115,12 @@ Git 恢复不包含外部工具数据库、registry 镜像和历史身份提供�
 ## 运维和安全边界
 
 - 平台仓库的 PaC 校验运行在 `platform-connectors`，可能挂载管理员 Secret；更强的做法是在没有管理员 Secret 的独立 namespace 注册 Repository，并只允许 dispatcher 创建指定 PipelineRun。
-- `projects` Application 使用平台 AppProject；onboarding 合并请求新增的 ClusterRole、ClusterRoleBinding、RoleBinding、AccessPolicy 必须人工审阅。更严格时为 `projects` 创建独立 AppProject，仅允许 Application、AppProject、ConfigMap、RoleBinding 和平台项目。
+- `projects` Application 使用平台 AppProject；onboarding 合并请求新增的 ClusterRole、ClusterRoleBinding、RoleBinding、AccessPolicy 必须人工审阅。更严格时为 `projects` 创建独立 AppProject，仅允许 Application、AppProject、ConfigMap、Role、RoleBinding 和平台项目。生成的 Connector mount 授权也包含 Role，不能在收紧白名单时遗漏。
 - 样例没有部署制品晋级 Kyverno 规则 1–3（模板变更保护规则 4 也未部署）；生产项目应按产品文档补齐。
 - Chains 中央 registry credential 对所有被签名项目有 push 权限，必须只允许平台管理员读取/创建 Pod，并定期轮换 robot token。
 - 生产 namespace 应限制只接受 `<project>-prod/*@sha256:*`；PolicyException 的创建权限和 Kyverno exception namespace 也要单独收紧。
 - `argocd-project-namespace-boundary` 在项目 namespace 拒绝项目 GitOps Application 创建/更新/删除 Role、RoleBinding、ResourceQuota、LimitRange、NetworkPolicy、PolicyException 和 AccessPolicy。它依赖正确的 Argo CD 写入身份、tracking annotation、每个目标集群的 Kyverno 和 webhook；切换策略前必须用真实身份做正反测试。
-- 删除项目声明或回滚登记提交可能让 `projects` Application prune 平台项目及同名 namespace；下线项目时还要单独清理工具租户和其他 namespace。
+- 仅删除项目声明不会自动下线项目；同时需要移除对应 `configMapGenerator` 条目，否则声明层无法渲染。删除注册目录及其 resources 条目，或回滚注册提交，才可能让 `projects` Application prune 平台项目及同名 namespace。下线项目时还要单独清理工具租户、AppProject 和其他 namespace。
 
 ## 替换项
 

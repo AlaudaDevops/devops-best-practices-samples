@@ -384,9 +384,11 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   `connectors/proxy` with verb `*` for when the approval flag is on; see
   `sample-app/promotion/standing-access.yaml`) (Connectors documentation:
   *Connectors CSI Driver*, *AccessPolicy*).
-- **The onboarding ServiceAccount can use the admin Secrets.** Its RBAC holds
-  no Secret API access in `platform-connectors`, but it creates PipelineRuns
-  there, and a Pod can mount any Secret of its own namespace. Treat it, and
+- **The onboarding ServiceAccount can use the admin Secrets.** Its RBAC grants
+  no direct read/update access to admin Secrets, while it does grant create
+  and named read/update access for project release-Connector Secrets in
+  `platform-connectors`. It also creates PipelineRuns there, and a Pod can
+  mount any Secret of its own namespace. Treat it, and
   anyone able to create Pods or PipelineRuns in `platform-connectors`, as
   holding the admin credentials. Optional hardening (not enabled): a Kyverno
   rule that lets this ServiceAccount create only PipelineRuns of
@@ -399,9 +401,12 @@ What this sample leaves open, who can hit it, and the recommended hardening.
 - **The GitOps repository is not protected.** Onboarding creates
   `<project>/gitops/config` but configures no branch protection or code
   owners, so a holder of the maintainer token can change `envs/prod` on
-  `main` without review. Hardening: protect `main` and require code owner
-  approval for `envs/prod/` (gitops-template README, "Who may change
-  `main`").
+  `main` without review. The same token can change branch protection and
+  code-owner settings. Hardening: put production on a separately controlled
+  branch or repository and use a writer that can propose a merge request but
+  cannot change protection or push/merge production changes. Require an
+  independent reviewer, with enforced code-owner approval where the GitLab
+  tier supports it (gitops-template README, "Who may change `main`").
 - **GitLab group members.** Onboarding creates the group and its tokens; a
   platform administrator adds the developers to GitLab group `<project>`, and
   gives the identity of the central webhook credential the Maintainer role on

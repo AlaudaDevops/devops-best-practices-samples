@@ -335,9 +335,13 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   `promotion/access-policy.yaml`. Nothing copies or compares them: keep the
   three identical. Hardening: an onboarding step that fails when the three
   differ, and rule 4 below.
-- **Promotion guardrails are not deployed.** The release Connector is released
-  to the Pods of an approved promotion run (Connectors documentation:
-  *AccessPolicy*); the sample does not restrict what else may run in
+- **Promotion guardrails are not deployed.** Approval protects the release
+  Connector only after the administrator enables both Connector approval and
+  proxy-permission checks and applies the matching production AccessPolicy
+  (see `promotion/access-policy.yaml` for the required order). With those
+  controls active, the policy releases it to the Pods of an approved promotion
+  run. With the default disabled flags, a runtime ApprovalTask alone does not
+  restrict the mount. The sample also does not restrict what else may run in
   `shop-cd`. Deploy rules 1–3 of the Catalog page *Constrain Artifact
   Promotion with Kyverno* (`promotion-runs-use-a-template`,
   `no-taskrun-outside-a-template`, `no-pod-outside-a-template`) as a platform

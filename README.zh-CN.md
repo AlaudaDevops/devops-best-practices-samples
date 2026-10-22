@@ -20,7 +20,7 @@
 2. 按 `platform-repo/README.md` 准备 `platform-connectors`、四个自动创建 Task、凭据和 Argo CD 根 Application。
 3. 将 `onboarding/` 放入平台仓库，先执行一次 `kubectl apply -k platform-repo/argocd/apps/`。引导前已经存在的项目声明不会自动触发分发运行，需要按项目手动启动 onboarding Run Template。
 4. 用 `sample-app/README.md` 创建应用 PaC Repository，依次运行 CI、测试 CD、晋级和生产 CD。
-5. 在隔离验收项目中运行 `acceptance/`。验收脚本会访问真实工具，并且自愈检查可能暂时删除项目负责人 RoleBinding，必须准备恢复方案。
+5. 在隔离验收项目中运行 `acceptance/`。验收脚本会访问真实工具；自愈检查删除并等待重建专用的、没有 subjects 的探针 RoleBinding，执行前必须先同步该对象。超时会尝试从保存副本恢复并保持 FAIL。
 
 ## 可本地尝试的内容
 
@@ -38,7 +38,7 @@ for d in gitops-template/envs/*/; do kustomize build "$d"; done
 ## 使用时必须确认的边界
 
 - 生产 Harbor 项目应保持私有。Kyverno 验签私有仓库时，还要配置能读取发布镜像及签名附件的凭据；切换到 `Enforce` 前先用已签名 digest 做阳性验证。
-- `enable-connectors-approval` 关闭时，能在保存生产 Connector 的命名空间创建 Pod 或 PipelineRun 的主体可以直接使用其中的凭据，ApprovalTask 不会自动形成边界。
+- `enable-connectors-approval` 关闭时，具有生产 Connector `get` 权限的运行身份可以直接挂载它。能在 `shop-cd` 创建 Pod 或 PipelineRun 的主体可以选用已获授权的 `shop-release`，所以交付 namespace 也属于生产凭据边界；能在保存凭据的 namespace 创建 Pod 或读取 Secret 的主体还能直接使用原始凭据。ApprovalTask 不会自动形成边界。
 - GitOps writer 使用 Maintainer 级 group access token 时，可以修改分支保护和代码负责人设置。生产环境应使用独立的受控分支或仓库，并改用只能提出合并请求、不能修改保护规则或直接推送/合并生产变更的 writer 身份；同步调整 CD 仓库地址和 Argo CD 来源。仅给现有仓库添加分支保护或 CODEOWNERS 不能约束同一个 Maintainer token。
 - 按名称执行 `/test ci` 会绕过 PaC 事件注解，因此样例在 pre-build 中再次检查事件和分支：只接受 `main` 上的 `push`，评论触发即使在 `main` 上也会失败。发布候选 CI 通过新的已评审 push 重试，评论验证使用 `ci-merge-request`。临时镜像与发布候选仍共用项目级凭据，更强的隔离需要独立临时 Harbor 项目和受限凭据。
 - 样例中的 `imagePullFrom` 只保留字段并输出警告，未实现跨项目拉取授权。

@@ -125,23 +125,29 @@ CI mount 需要 `shop-harbor` 的 `get`，启用 approval 后还需要 proxy 权
 
 不要给项目 owners 在 `shop-cd` 授予 `edit`：它包含创建 Pod 的权限，Pod 可以直接挂载 `shop-gitops-writer` Secret，并绕过 Connector approval。
 
+组审批需要在同一个 JSON patch 中设置该组的 `input: approve`，并把实际审批人加入该项的 `users`。需要多票时，后续成员向 `users/-` 追加自己的单个对象，不能覆盖前一位；每位组成员计一票。具体 patch 形状见[英文权限表](README.md#who-applies-what)。样例不直接授予 kubectl 审批角色，控制台审批还需要可选的 ACP 只读角色。必须用两个真实用户验证本人允许、越权修改他人被拒，不能仅看 `status.approversResponse` 就认定身份已经可靠绑定。
+
 ## 运维和硬化
 
 - GitOps writer 位于 CD namespace；能创建 Pod 或 PipelineRun 的主体可能直接取得生产写权限。生产环境应把 writer 放到没有流水线运行的管理 namespace，并通过跨 namespace Connector mount 授权。
 - 样例没有自动部署晋级护栏规则；生产环境按产品文档部署 `promotion-runs-use-a-template`、`no-taskrun-outside-a-template`、`no-pod-outside-a-template`，并限制模板修改者。
 - Chains 中央凭据对所有签名项目有 push 权限，只允许平台管理员读取或在 `tekton-pipelines` 创建 Pod，并按策略轮换。
-- `promotion/access-policy.yaml` 只有在 approval flag 打开后才能应用；审批前不得给 release 身份直接的生产 Connector proxy 权限。
-- 生产 GitOps 仓库的 `main` 和 `envs/prod/` 必须有独立 writer、保护和 Code Owner 审批；同一个 Maintainer token 能修改保护规则的事实不能被分支保护掩盖。
+- 审批只有在管理员启用 `enable-connectors-approval`、应用匹配的生产 AccessPolicy，再启用 `enable-connector-proxy-permissions` 后，才能限制生产 Connector 挂载；按 `promotion/access-policy.yaml` 中的顺序配置并验收。默认两个开关均关闭时，单独的 ApprovalTask 不会拦截挂载。审批前不得给 release 身份直接的生产 Connector proxy 权限。
+- `approvers.prod` 只是项目声明中的记录；实际生效的审批名单分别位于 `promotion/pipeline.yaml` 和 `promotion/access-policy.yaml`，样例不会自动复制或比较它们。三处必须在同一评审变更中保持一致。
+- 生产 GitOps 路径必须使用受控 writer 和独立的保护规则；代码平台支持时，再要求 Code Owner 审批。也可以使用独立保护的生产分支或仓库。同一个 Maintainer token 能修改保护规则的事实不能被分支保护掩盖。
 - `promotion/validate-digest` 检查输入镜像、tag、签名附件的映射；只允许同一 digest 的显式 `.sig`/`.att` 映射，其他仓库、plain tag 或第二个 digest 都会在审批前拒绝。
+- 晋级的生产 robot 需要读取 staging 项目并读写 `<project>-prod`，onboarding 授予这三项权限，不授予 staging push。copy 的两个配置共用代理环境，目标配置覆盖源配置，因此两端实际使用生产 Connector 的代理凭据；源只读挂载提供 CA，不构成独立的只读认证路径。
+- 每次晋级使用新的 release label，并由管理员为 `<project>-prod` 配置 Harbor tag immutability。Pipeline 只检查格式，不查询标签是否已存在；重复标签应让晋级失败，不能移动已有发布标签。
+- `require-signed-images` 只检查匹配发布仓库的镜像，生产 Pod 若使用其他仓库便不在这条规则范围内。生产环境还需限制只接受 `<project>-prod/*@sha256:*`。provenance 中的 Pipeline 名称也不单独证明构建身份，因为其他 namespace 可以创建同名 Pipeline。
+- 在晋级被清理前单独导出 ApprovalTask；Tekton Results 保存 PipelineRun、TaskRun 和日志，不代替审批对象的归档。使用审批记录时还要结合前述真实身份验收结果。
 
 ## 触发与重跑
 
 ```text
-/test ci branch:<branch>       # 适合 ci-merge-request
-/test ci <pipelinerun> branch:<branch>  # 依产品语法重跑已有运行
+/test ci-merge-request branch:<source-branch>
 ```
 
-生产候选 CI 必须使用新的、已评审的 main push；不能把命名 `/test ci` 当成真实 push。完整 PaC 语法见产品文档。
+在合并请求中发送这条评论。PaC 使用该合并请求的源分支，`branch:` 保留统一的调用形式。生产候选 CI 必须使用新的、已评审的 `main` push；命名 `/test ci` 即使在 `main` 上也会被 pre-build 检查拒绝。完整语法见 [Trigger PAC Pipelines](https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/trigger_pipeline.html)。
 
 ## 替换项
 

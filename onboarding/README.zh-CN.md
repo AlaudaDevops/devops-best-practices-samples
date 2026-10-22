@@ -52,7 +52,7 @@ English version：[README.md](README.md)。
   | `sonarqube-connector-automatic-creation` | <https://docs.alauda.io/alauda-devops-connectors/1.14/connectors-sonarqube/how_to/using_sonarqube_connector_automatic_creation_task.html> |
 
 - GitOps 模板已发布到独立仓库；平台项目（例如 `shop`）已创建；PaC webhook 注册控制器已配置集中凭据和 controller URL；Argo CD 已有能读取所有项目 GitOps 仓库的 `repo-creds`。
-- Harbor 项目必须保持私有。启用 `enable-connectors-approval` 前，按顺序启用 approval flag、应用 `optional/admin-connectors-access.yaml`，再启用 proxy-permissions flag。
+- Harbor 项目必须保持私有。准备启用 Connector 审批时，先备齐所有非审批 Connector 的 proxy 授权，再按顺序启用 `enable-connectors-approval`、应用 `optional/admin-connectors-access.yaml`，最后启用 proxy-permissions flag；开关与授权尚未齐备的窗口内暂停 onboarding。
 
 安装 Task 后检查：
 
@@ -134,7 +134,7 @@ kubectl -n argocd get application shop-test -o jsonpath='{.status.sync.status} {
 ## 安全边界和硬化
 
 - `<project>-gitops-writer` Secret 位于 CD namespace；能在那里创建 Pod 的主体可能直接挂载它。生产环境应将 Connector 放在没有流水线运行的管理 namespace，并通过跨 namespace 的 `get`/`connectors/proxy` 授权挂载。
-- onboarding ServiceAccount 虽然不能直接读取 `platform-connectors` 的 Secret，但能在那里创建 PipelineRun，运行 Pod 可以挂载该 namespace 的 Secret。应限制该 namespace 的 Pod/PipelineRun 创建者，并考虑 Kyverno 只允许它创建指定的两种 PipelineRun。
+- onboarding ServiceAccount 虽然没有直接读取管理员 Secret 的授权，但能在 `platform-connectors` 创建 PipelineRun，运行 Pod 可以挂载该 namespace 的 Secret；项目发布 Connector 的具名 Secret 另有直接读写授权。应限制该 namespace 的 Pod/PipelineRun 创建者，并考虑 Kyverno 只允许它创建指定的两种 PipelineRun。
 - `approvers` 不会和晋级 Pipeline、AccessPolicy 自动比对；生产环境应增加一致性检查。
 - 开通不会配置 GitOps 仓库的分支保护和 CODEOWNERS；生产路径必须按 [GitOps 模板说明](../gitops-template/README.zh-CN.md)另行保护。
 - 第 7 步会等待子 PipelineRun 最多 20 分钟并持续占用 CPU；单节点集群要预留两个 Pod 的资源，并在取消父运行后检查无 ownerReference 的子运行。

@@ -2,9 +2,10 @@
 # Same catalog Pipeline as run-template-test.yaml, in pr mode: it pushes an
 # automatically named branch and opens a GitLab merge request against main of
 # the project GitOps repository; Argo CD syncs envs/prod to shop-prod after the
-# merge. The merge request review is a human gate only once main is protected
-# and envs/prod needs code owner approval, which onboarding does not set up
-# (gitops-template README, "Who may change main").
+# merge. Review is a human gate only with an independently protected production
+# path and a writer unable to bypass or change that protection. Require a
+# separate reviewer and, where supported, enforced code-owner approval;
+# onboarding configures neither (gitops-template README, "Who may change main").
 # Input: the RELEASE digest, i.e. the `promoted-digest` result of a successful
 # promotion run (promotion/), filled in by hand in this sample: render the
 # template with the digest and `kubectl create` the PipelineRun. From the

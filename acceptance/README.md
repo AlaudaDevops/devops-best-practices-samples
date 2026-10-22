@@ -43,8 +43,8 @@ BUILD_DIGEST=sha256:<digest> RELEASE_LABEL=release-001 PROMOTION_RUN=<pipelineru
 UNSIGNED_IMAGE=registry.example.com/"$PROJECT"-prod/acceptance-unsigned@sha256:<digest> \
 COSIGN_PUB=./cosign.pub ./01-commit-to-production.sh
 
-# ALLOW_MUTATING=true lets check `onboarding-self-healing` delete the RoleBinding <project>-owners
-# (<project>-owners) and wait for GitOps to re-create it; without it that check
+# ALLOW_MUTATING=true lets check `onboarding-self-healing` delete the disposable,
+# subject-free RoleBinding <project>-self-healing-probe and wait for GitOps to re-create it; without it that check
 # reports FAIL "skipped" and the run cannot pass.
 OTHER_PROJECT=<second-isolated-acceptance-project> \
 PROJECT_IMAGE=registry.example.com/"$PROJECT"/hello@sha256:<digest> \
@@ -86,8 +86,10 @@ sufficient. If it fails, the unsigned check cannot pass.
 The pull checks test one direction per invocation. Swap `PROJECT` and
 `OTHER_PROJECT`, use an existing image from the other registry project as
 `PROJECT_IMAGE`, and repeat with the corresponding validation and onboarding
-run inputs to test the opposite direction. Both projects must be disposable;
-the self-healing check can temporarily remove the owners' access.
+run inputs to test the opposite direction. Both projects must be disposable.
+Merge and synchronize the registration containing the dedicated
+`<project>-self-healing-probe` RoleBinding before the self-healing check;
+existing projects obtain it through a reviewed registration update.
 
 In Audit mode check `delivery-unsigned-image` reads the PolicyReport whose `.scope.uid` is the
 uid of its probe Pod (Kyverno 1.15 per-resource reports; their results carry
@@ -155,8 +157,10 @@ Inputs that earlier steps must produce first:
   cleaned up on exit, plus unique `acceptance-onboarding-` pull probes in the
   project and other project's namespace, also cleaned up on exit. The probes satisfy the `restricted` Pod Security
   level; inspect other admission policies if they are refused.
-- `onboarding-self-healing` deletes the RoleBinding `shop-owners` (owners of the declaration,
-  applied by the platform repository's `projects` Application) and waits for GitOps to
+- `onboarding-self-healing` deletes the subject-free RoleBinding
+  `<project>-self-healing-probe`, rendered from
+  `platform-repo/templates/rolebinding-self-healing-probe.yaml` and applied by
+  the platform repository's `projects` Application, and waits for GitOps to
   re-create it. It saves the object and its UID first and passes only when a
   RoleBinding of that name with a different UID appears within
   `SYNC_WAIT_SECONDS` (default 600; allow for the automated sync interval of
@@ -165,7 +169,10 @@ Inputs that earlier steps must produce first:
   GitOps does not re-create it in time, the script re-creates it from the saved
   copy and the FAIL line says "restored by the script" (if that also fails, the
   FAIL line gives the path of the saved copy). It runs only with
-  `ALLOW_MUTATING=true`; without it the check reports FAIL "skipped".
+  `ALLOW_MUTATING=true`; without it the check reports FAIL "skipped". The
+  binding must carry `samples.example.com/acceptance-probe: self-healing` and
+  have no subjects. A missing probe or an override naming an access grant
+  fails before deletion; never use the owners' RoleBinding as the probe.
 - Two steps stay manual: posting `/test validate branch:<source-branch>` on
   a merge request of the project GitOps repository (on a merge request PaC
   runs its source branch and does not use `branch:`; write the source branch
