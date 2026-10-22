@@ -31,7 +31,7 @@ Argo CD 为每个 `envs/<env>/` 目录渲染一个 Application。
 /test validate branch:<branch>
 ```
 
-完整语法见 [Trigger PAC Pipelines](https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/trigger_pipeline.html)。合并请求校验使用模板仓库当前的 `.tekton/validate.yaml`；只有合并后定义才会改变后续运行。
+完整语法见 [Trigger PAC Pipelines](https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/trigger_pipeline.html)。PaC 使用当前项目 GitOps 仓库默认分支 `main` 中已合并的 `.tekton/validate.yaml` 定义；修改该定义的合并请求在合并前仍使用原定义。模板仓库的后续更新不会自动传播到已经播种的项目仓库。
 
 ### 镜像只使用 digest
 

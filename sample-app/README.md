@@ -99,8 +99,10 @@ kubectl -n shop-cd get pipelinerun <promote-run> \
 
 ## Catalog resources used
 
-All referenced with `resolver: hub` and an explicit `version`; nothing is
-inlined. The CI scan needs one internal mirror: `trivy-scanner` downloads its
+The catalog Pipelines and Tasks below use `resolver: hub` with an explicit
+`version`. The project-local `hello-promote` Pipeline uses the cluster resolver;
+its approval step references the installed `ApprovalTask` Custom Task by kind.
+The CI scan needs one internal mirror: `trivy-scanner` downloads its
 vulnerability DB at run time, from `mirror.gcr.io` unless `trivyExtraArgs`
 names another repository, so both `.tekton/` files point it at
 `registry.example.com/mirror/trivy-db:2` (replace with your mirror of
@@ -111,7 +113,7 @@ administrator before relying on it as a pin.
 
 | Kind | Name | Version | Used in |
 |---|---|---|---|
-| Pipeline | `python-image-build-scan-deploy` | 0.3 | `.tekton/ci.yaml`, `.tekton/ci-merge-request.yaml` (Python, SonarQube and deploy steps skipped by leaving their params empty) |
+| Pipeline | `python-image-build-scan-deploy` | 0.3 | `.tekton/ci.yaml` runs the pre-build shell guard; `.tekton/ci-merge-request.yaml` skips pre-build. Both skip SonarQube and deployment by leaving those inputs empty. |
 | Pipeline | `gitops-repo-update` | 0.1 | `cd/` |
 | Task | `run-script` | 0.1 | `promotion/pipeline.yaml` (`validate-digest`) |
 | Task | `skopeo-copy` | 0.1 | `promotion/pipeline.yaml` (`promote-image`, `imageMappings` form) |

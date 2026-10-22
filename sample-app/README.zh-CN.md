@@ -62,11 +62,11 @@ kubectl -n shop-cd get pipelinerun <promote-run> \
 
 ## 使用的 catalog 资源
 
-所有资源都以 `resolver: hub` 和显式版本引用；部署完全由 GitOps 完成，不使用教程中的 `workload-apply`：
+下表中的 catalog Pipeline 和 Task 通过 `resolver: hub` 和显式版本引用。项目内的 `hello-promote` Pipeline 使用 cluster resolver；其中的审批步骤按 kind 引用已安装的 `ApprovalTask` Custom Task。部署完全由 GitOps 完成，不使用教程中的 `workload-apply`：
 
 | 类型 | 名称 | 版本 | 用途 |
 | --- | --- | --- | --- |
-| Pipeline | `python-image-build-scan-deploy` | 0.3 | 两个 CI 文件；Python、SonarQube 和 deploy 参数留空 |
+| Pipeline | `python-image-build-scan-deploy` | 0.3 | `ci.yaml` 执行 pre-build shell guard，`ci-merge-request.yaml` 跳过 pre-build；两者均将 SonarQube 和部署输入留空以跳过这两步 |
 | Pipeline | `gitops-repo-update` | 0.1 | `cd/` |
 | Task | `run-script` | 0.1 | 晋级的 digest 校验 |
 | Task | `skopeo-copy` | 0.1 | 晋级的 `imageMappings` |
