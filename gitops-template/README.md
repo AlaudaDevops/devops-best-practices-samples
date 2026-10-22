@@ -1,5 +1,7 @@
 # Project GitOps repository template
 
+中文版本：[README.zh-CN.md](README.zh-CN.md)。
+
 Template for a project's GitOps repository, from the Alauda DevOps best-practice
 series, the platform configuration article. The onboarding pipeline copies this directory
 into a new repository for each project (for example `shop/gitops/config`, that

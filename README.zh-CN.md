@@ -4,11 +4,11 @@
 
 配套英文文章：
 
-文章目前在 [Knowledge PR #859](https://github.com/alauda/knowledge/pull/859) 审核，下列链接可直接打开当前审核分支的正文。文章说明选择路线、适用条件、代价和样例采用该路线的原因；本仓库说明如何替换配置并执行样例。
+正式文章说明选择路线、适用条件、代价和样例采用该路线的原因；本仓库说明如何替换配置并执行样例。
 
-- [Alauda DevOps Best Practices: Overview and Scenario Guide](https://github.com/alauda/knowledge/blob/docs/devops-best-practices-human-review/docs/en/solutions/Alauda_DevOps_Best_Practices_Overview.md)
-- [From Commit to Production on ACP](https://github.com/alauda/knowledge/blob/docs/devops-best-practices-human-review/docs/en/solutions/From_Commit_to_Production_on_ACP.md)
-- [Managing Platform Configuration and Onboarding Isolated Projects with Argo CD and Tekton on ACP](https://github.com/alauda/knowledge/blob/docs/devops-best-practices-human-review/docs/en/solutions/Managing_Platform_Configuration_and_Onboarding_Isolated_Projects_with_Argo_CD_and_Tekton_on_ACP.md)
+- [Alauda DevOps Best Practices: Overview and Scenario Guide](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Alauda_DevOps_Best_Practices_Overview.md)
+- [From Commit to Production on ACP](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/From_Commit_to_Production_on_ACP.md)
+- [Managing Platform Configuration and Onboarding Isolated Projects with Argo CD and Tekton on ACP](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Managing_Platform_Configuration_and_Onboarding_Isolated_Projects_with_Argo_CD_and_Tekton_on_ACP.md)
 
 ## 前置条件
 
@@ -63,8 +63,8 @@ for d in gitops-template/envs/*/; do kustomize build "$d"; done
 
 ## 子目录说明
 
-- [GitOps 模板](gitops-template/README.md)
-- [平台仓库](platform-repo/README.md)
-- [项目开通](onboarding/README.md)
-- [样例应用](sample-app/README.md)
-- [验收脚本](acceptance/README.md)
+- [GitOps 模板](gitops-template/README.zh-CN.md)
+- [平台仓库](platform-repo/README.zh-CN.md)
+- [项目开通](onboarding/README.zh-CN.md)
+- [样例应用](sample-app/README.zh-CN.md)
+- [验收脚本](acceptance/README.zh-CN.md)

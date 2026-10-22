@@ -1,5 +1,7 @@
 # Verify Chains signatures and provenance
 
+中文版本：[README.zh-CN.md](README.zh-CN.md)。
+
 This directory accompanies the "From Commit to Production on ACP" article.
 The platform signs images with Tekton Chains (a platform-wide configuration
 described in the platform configuration article). It shows how a project

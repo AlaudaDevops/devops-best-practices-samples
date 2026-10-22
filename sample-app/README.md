@@ -1,5 +1,7 @@
 # Sample application and its delivery line
 
+中文版本：[README.zh-CN.md](README.zh-CN.md)。
+
 A minimal Go HTTP service (`/` and `/healthz`) with the delivery line of the
 Alauda DevOps best-practice series and the "From Commit to Production on ACP" article: CI from the
 platform catalog, digest-based delivery through the project GitOps repository,

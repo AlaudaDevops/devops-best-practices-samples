@@ -1,5 +1,7 @@
 # Project onboarding pipeline
 
+中文版本：[README.zh-CN.md](README.zh-CN.md)。
+
 Sample onboarding pipeline for the Alauda DevOps best-practice series and the
 "Managing Platform Configuration and Onboarding Isolated Projects with Argo CD
 and Tekton on ACP" article. One run turns a merged project

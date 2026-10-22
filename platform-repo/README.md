@@ -1,5 +1,7 @@
 # Platform repository skeleton
 
+中文版本：[README.zh-CN.md](README.zh-CN.md)。
+
 Sample platform GitOps repository for the Alauda DevOps best-practice series,
 the "Managing Platform Configuration and Onboarding Isolated Projects with Argo CD and Tekton on ACP" article. Copy this directory as the root
 of your own platform repository; every path below is relative to this directory,

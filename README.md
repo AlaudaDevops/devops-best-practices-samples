@@ -2,9 +2,10 @@
 
 中文入口：[README.zh-CN.md](README.zh-CN.md)。
 
-The articles are under review in [Knowledge PR #859](https://github.com/alauda/knowledge/pull/859). The links below open the current review source. The articles explain the alternatives, their costs, and the reasons for the sample choices; these READMEs cover adapting and running the files.
+The published articles explain the alternatives, their costs, and the reasons
+for the sample choices; these READMEs cover adapting and running the files.
 
-Related knowledge articles: [Overview](https://github.com/alauda/knowledge/blob/docs/devops-best-practices-human-review/docs/en/solutions/Alauda_DevOps_Best_Practices_Overview.md), [From Commit to Production](https://github.com/alauda/knowledge/blob/docs/devops-best-practices-human-review/docs/en/solutions/From_Commit_to_Production_on_ACP.md), and [Managing Platform Configuration and Onboarding Isolated Projects](https://github.com/alauda/knowledge/blob/docs/devops-best-practices-human-review/docs/en/solutions/Managing_Platform_Configuration_and_Onboarding_Isolated_Projects_with_Argo_CD_and_Tekton_on_ACP.md).
+Related knowledge articles: [Overview](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Alauda_DevOps_Best_Practices_Overview.md), [From Commit to Production](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/From_Commit_to_Production_on_ACP.md), and [Managing Platform Configuration and Onboarding Isolated Projects](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Managing_Platform_Configuration_and_Onboarding_Isolated_Projects_with_Argo_CD_and_Tekton_on_ACP.md).
 
 Sample material accompanying the **Alauda DevOps best-practice series**. The
 directories here turn the snippets of the series into files you can read,

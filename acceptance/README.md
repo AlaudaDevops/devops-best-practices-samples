@@ -1,8 +1,10 @@
 # Acceptance scripts
 
-The acceptance tables in the [From Commit to Production on ACP](https://github.com/alauda/knowledge/blob/docs/devops-best-practices-human-review/docs/en/solutions/From_Commit_to_Production_on_ACP.md)
+中文版本：[README.zh-CN.md](README.zh-CN.md)。
+
+The acceptance tables in the [From Commit to Production on ACP](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/From_Commit_to_Production_on_ACP.md)
 and [Managing Platform Configuration and Onboarding Isolated Projects with
-Argo CD and Tekton on ACP](https://github.com/alauda/knowledge/blob/docs/devops-best-practices-human-review/docs/en/solutions/Managing_Platform_Configuration_and_Onboarding_Isolated_Projects_with_Argo_CD_and_Tekton_on_ACP.md)
+Argo CD and Tekton on ACP](https://github.com/alauda/knowledge/blob/main/docs/en/solutions/Managing_Platform_Configuration_and_Onboarding_Isolated_Projects_with_Argo_CD_and_Tekton_on_ACP.md)
 articles have companion scripts. They cover the checks below; CI source and
 scan evidence, promotion-result correlation, GitOps review, and dispatcher
 child-run completion still require the manual checks described here and in
