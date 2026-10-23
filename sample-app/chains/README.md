@@ -27,6 +27,10 @@ IMAGE=registry.example.com/shop/hello@sha256:<digest> COSIGN_PUB=./cosign.pub IG
   `kubectl auth can-i get secret/signing-secrets -n tekton-pipelines --as=system:serviceaccount:<namespace>:<serviceaccount>`
   and review the ClusterRoleBindings that grant read access to Secrets
   cluster-wide.
+- Treat `signing-secrets` as an immutable key object when the platform enables
+  Secret immutability. Rotate it by creating and validating a replacement in a
+  maintenance window, then update the public verification key and admission
+  policy together; do not edit the key data in place.
 - Check the central Chains registry credential the same way (Secret
   `chains-registry-credential` in `tekton-pipelines`, see "Where signatures
   are stored"): it is a standing credential with push on every Harbor project

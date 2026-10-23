@@ -13,6 +13,9 @@
 # ACP can already grant broader project Connector reads; these named grants
 # do not revoke inherited access. Enable proxy authorization to restrict use
 # by identity, and keep Pod creation away from credential-bearing namespaces.
+# A name-scoped `get` is sufficient for this explicit mount. It does not satisfy
+# a `defaultPermission` policy that requires namespace-wide `get`; identities
+# without that broader read may be skipped by such a policy even when it is Ready.
 # The second rule covers the approval feature: once a platform administrator
 # turns on `enable-connectors-approval`, a mount needs `connectors/proxy` with
 # verb `*` on the Connector as well.

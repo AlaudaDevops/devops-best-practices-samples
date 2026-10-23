@@ -105,7 +105,7 @@ spec:
     pipelinerun_provenance: "default_branch"
 ```
 
-`hello-pac-auth` 只在集群里创建，包含 `provider.token`（GitLab `api`、`read_repository`）和随机 `webhook.secret`，不能提交到 Git。自建 GitLab 必须填写 `git_provider.url`，否则 PaC 可能把状态和评论 token 发往 `https://gitlab.com`。受保护 main 上，GitLab 还要求 token 的角色足以写 commit status；实际应使用受控 writer 并验证 403/成功路径。
+`hello-pac-auth` 只在集群里创建，包含 `provider.token`（GitLab `api`、`read_repository`）和随机 `webhook.secret`，不能提交到 Git。自建 GitLab 必须填写 `git_provider.url`，否则 PaC 可能把状态和评论 token 发往 `https://gitlab.com`。受保护 main 上，GitLab 还要求 token 的角色足以写 commit status；实际应使用受控 writer 并验证 403/成功路径。`api` scope 也允许通过 GitLab API 修改未保护分支；缺少 `write_repository` 只表示不能用 HTTPS Git push，不等于只读。必须先配置并验证 main 保护，才能把它当作评审边界。
 
 CI mount 需要 `shop-harbor` 的 `get`，启用 approval 后还需要 proxy 权限；CD mount 需要 `shop-gitops-writer`。所有 registry mount 都绑定 Connector proxy CA。Argo CD 的 `repo-creds`、PaC webhook 和 GitLab 组成员是平台前置条件。
 

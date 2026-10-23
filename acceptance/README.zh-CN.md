@@ -16,6 +16,8 @@ English version：[README.md](README.md)。
 
 每项检查只输出一行 `PASS <label>` 或 `FAIL <label>`，脚本末尾输出 `== result: X pass / Y fail ==`，有失败时以非零状态退出。`delivery-signature`、`onboarding-application` 等 label 是脚本内部稳定的检查 ID，不是英文文章的章节编号。
 
+如果平台安装了 `policies/no-bare-taskrun.yaml`，还要在可丢弃的项目命名空间中单独验收：用项目身份创建一个最小的裸 TaskRun，确认 `Audit` 放行并产生 PolicyReport，再切换策略到 `Enforce`，确认同一个请求被拒绝。两次检查后删除探针。必须发起真实请求；server-side dry run 不会创建 Audit 检查所需的 PolicyReport。
+
 ## 运行
 
 两个脚本顶部列出全部环境变量。`PROJECT` 必须显式设置为独立的验收项目，脚本不会默认使用生产租户；第二个脚本还必须设置不同的 `OTHER_PROJECT`。先完成首次晋级、生产 GitOps 合并和 rollout，再运行交付脚本。

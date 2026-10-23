@@ -470,12 +470,13 @@ spec:
     # accessLevel is always explicit, and a group token covers every subgroup
     # and repository of the group. Every pipeline of the project can mount this
     # Connector and the PaC Repository of the GitOps repository uses its token,
-    # so it gets `developer` (the GitLab role that allows clone, push to
-    # unprotected branches, merge requests and commit status), never the right
-    # to change protected branches or group settings. What the token can do is
-    # also bounded by its scopes below: the product documentation names
-    # `write_repository` for Git push over HTTPS, which this token does not get
-    # (the acceptance README).
+    # so it gets `developer` (the GitLab role that allows clone, API changes
+    # such as pushes to unprotected branches, merge requests and commit
+    # status), never the right to change protected branches or group settings
+    # by role alone. Do not treat the missing `write_repository` scope as making
+    # this token read-only: `api` can still change an unprotected repository
+    # through GitLab's API. `write_repository` is needed for Git push over
+    # HTTPS; keep the API and role boundaries in the acceptance checks.
     - name: gitlab-tenant
       runAfter:
         - create-namespaces

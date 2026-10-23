@@ -238,7 +238,8 @@ judge them. If you extend the constraint to that namespace, publish the two
 tasks as a Pipeline in the catalog and replace the `pipelineSpec` with a hub
 `pipelineRef` to it.
 
-Re-run the check from a merge request with `/test validate`. See
+Re-run the check from a merge request with `/test validate branch:<branch>`;
+replace `<branch>` with the merge request's source branch. See
 [Trigger PAC Pipelines](https://docs.alauda.io/alauda-devops-pipelines/4.15/pac/how_to/trigger_pipeline.html)
 for complete trigger syntax.
 

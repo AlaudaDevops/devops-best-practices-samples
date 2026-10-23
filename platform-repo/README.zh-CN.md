@@ -73,7 +73,7 @@ kubectl -n argocd get secret \
 
 ## 合并前校验
 
-`.tekton/validate.yaml` 在每个合并请求中渲染 `paths` 参数列出的目录。Repository 使用 `pipelinerun_provenance: default_branch`，因此运行的 `.tekton/` 来自 `main`，提 MR 的人不能在审核前改变校验定义。render Task 的镜像必须替换为目标 registry 中带 `sh`、`kubectl` 的工具镜像。
+`.tekton/validate.yaml` 在每个合并请求中渲染 `paths` 参数列出的目录。Repository 使用 `pipelinerun_provenance: default_branch`，因此运行的 `.tekton/` 来自 `main`，提 MR 的人不能在审核前改变校验定义。render Task 的镜像必须替换为目标 registry 中带 `sh`、`kubectl` 的工具镜像。需要重跑时，在合并请求中评论 `/test validate branch:<branch>`，将 `<branch>` 替换为源分支。
 
 当前 PipelineRun 通过 hub resolver 内联组合 `git-clone` 和 `run-script`。如果把 resolver 约束扩展到 `platform-connectors`，需将两个 Task 发布为 catalog Pipeline，并改用 hub `pipelineRef`。新增 Application 目录时同步添加到 `paths`。
 

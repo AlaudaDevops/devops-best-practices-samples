@@ -17,6 +17,7 @@ COSIGN_PUB=./cosign.pub IGNORE_TLOG=true ./verify.sh
 
 - `cosign.pub` 由平台团队从 Chains `signing-secrets` Secret 导出。不要申请读取该 Secret：它同时包含私钥 `cosign.key` 及密码；平台也可以把公钥发布到 ConfigMap 或公开仓库。
 - 平台管理员要用真实项目 ServiceAccount 检查不能读取 `signing-secrets`，并检查 `chains-registry-credential` 的读取范围。只有平台管理员应能在 `tekton-pipelines` 创建 Pod。
+- 如果平台为 Secret 启用不可变设置，应将 `signing-secrets` 视为不可原地修改的密钥对象。轮换时在维护窗口创建并验证新 Secret，再同步更新公钥和验签策略；不要直接改原 Secret 的密钥数据。
 - 签名和 provenance 只能证明使用了平台 Chains key，不能自动证明镜像来自哪一个集群或 Pipeline。晋级前仍需核对 CI PipelineRun 成功、事件为 main push，且 digest 正确。
 - 只按 digest 验证：CI digest 来自 `build-image` TaskRun 的 `IMAGE_DIGEST`，发布 digest 来自 promotion 的 `promoted-digest`。
 - air-gapped 环境没有透明日志时设置 `IGNORE_TLOG=true`。签名若放在独立仓库，设置 `COSIGN_REPOSITORY=<signature repository>`。

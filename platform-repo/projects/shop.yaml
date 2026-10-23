@@ -60,8 +60,11 @@ nexus:
       type: hosted
 sonarqube:
   project: shop
-# Approval gate for promotion into each protected environment; reference a
-# group, never an individual, by its ACP Group resource name.
+# Reviewed record of the intended approver group for promotion into each
+# protected environment. This field is validated for shape only; it does not
+# enforce an approval gate. The effective approvers are configured separately
+# in the promotion Pipeline and AccessPolicy. Reference a group, never an
+# individual, by its ACP Group resource name.
 approvers:
   prod: group:release-managers
 # Cross-project image pulls: list the projects whose images this project may

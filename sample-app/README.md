@@ -254,7 +254,10 @@ Prerequisites:
   `FailedToSetCommitStatus` on the Repository, of type `Normal`) and the
   merge commit shows no status; with role Maintainer it is reported. On an
   unprotected branch Developer is enough (GitLab CE
-  18.8, Pipelines-as-Code v0.48.1).
+  18.8, Pipelines-as-Code v0.48.1). The `api` scope also permits repository
+  changes through GitLab's API, including writing an unprotected branch;
+  omitting `write_repository` only prevents Git push over HTTPS. Protect and
+  verify `main` before treating it as a review boundary.
 - The PaC webhook registration controller configured for `git.example.com`
   creates the webhook (the "Managing Platform Configuration and Onboarding Isolated Projects" article): with the controller's centralized webhook credential (the Developer-level repository token cannot manage webhooks) (platform repository README, "Prerequisites"); without
   the controller, add the webhook in GitLab by hand with the same secret

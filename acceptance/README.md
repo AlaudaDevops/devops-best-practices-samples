@@ -26,6 +26,14 @@ anything failed. Labels such as `delivery-signature` and `onboarding-application
 script-local checklist IDs used to correlate output with this README; they are
 not chapter numbers in the English articles.
 
+When the platform installs `policies/no-bare-taskrun.yaml`, perform its
+admission check separately in a disposable project namespace: create a minimal
+direct TaskRun as the project identity, confirm that `Audit` admits it and
+records a PolicyReport, then switch the policy to `Enforce` and confirm the same
+request is rejected. Delete the probe after both observations. This check must
+use a real request; a server-side dry run does not create the PolicyReport used
+by the Audit assertion.
+
 ## Running
 
 Every placeholder is an environment variable at the top of each script. The
