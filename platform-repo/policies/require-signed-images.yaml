@@ -65,7 +65,8 @@ spec:
             secrets:
               - kyverno-release-registry-read
           attestors:
-            - entries:
+            - count: 1
+              entries:
                 # Chains stores signatures beside each image, so no
                 # `repository` here. Only for the optional separate signature
                 # repository (storage.oci.repository), add next to keys:
@@ -74,6 +75,10 @@ spec:
                 # pull on the signature project, or registry credentials
                 # configured for Kyverno.
                 - keys:
+                    # During key rotation, add a second entries item for the
+                    # new key, including the same offline options if needed.
+                    # count: 1 accepts either key. Retain the old entry until
+                    # all old-signed images, including rollback images, retire.
                     publicKeys: |-
                       <cosign-public-key-pem>
                     # Air-gapped platforms have no public transparency log;

@@ -342,9 +342,13 @@ be brought back first, in this order:
    ([`credentials/SEALED-SECRETS.md`](credentials/SEALED-SECRETS.md), "Back up
    the sealing key").
 3. The Chains signing key (`signing-secrets` in the Chains namespace) from its
-   offline backup. With a new key instead, replace `<cosign-public-key-pem>` in
-   `policies/require-signed-images.yaml` in the same change, or every release
-   image fails verification. Create the Chains registry credential
+   offline backup. To rotate to a new key, first retain the old public key and add
+   a separate entry for the new key under one attestor with `count: 1` in
+   `policies/require-signed-images.yaml`. Verify old-image admission, replace the
+   signer through its supported management workflow, and verify new-image
+   admission. Keep the old entry until old-signed images and rollback versions
+   retire; see [`sample-app/chains/README.md`](../sample-app/chains/README.md).
+   Create the Chains registry credential
    `chains-registry-credential` as well (Prerequisites) before `components/`
    is synced.
 4. Namespace `platform-connectors` and the four Connectors automatic-creation
@@ -441,8 +445,11 @@ What this sample leaves open, who can hit it, and the recommended hardening.
   with push on every Harbor project whose images Chains signs, every
   `<project>-prod` included, outside the promotion's approval. This follows
   from storing signatures beside the image. Only platform administrators may
-  read Secrets or create Pods in `tekton-pipelines`; check it like
-  `signing-secrets` (`sample-app/chains/README.md`), and rotate the robot's
+  read Secrets or create Pods in `tekton-pipelines`. Before onboarding, run
+  the [project-access checks](../sample-app/chains/README.md#check-project-access-before-enabling-signing)
+  for every project ServiceAccount, including EventListener identities.
+  Resolve any allowed request in the platform-managed permission source and
+  verify authenticated webhook delivery after narrowing access. Rotate the robot's
   token on a schedule like the other long-lived platform credentials.
 - **Production images.** `require-signed-images` selects Pods by image
   reference; add a rule that admits only

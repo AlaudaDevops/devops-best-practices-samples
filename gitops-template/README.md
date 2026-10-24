@@ -94,6 +94,10 @@ leaves to you:
   `.tekton/` runs as merged, never as proposed by a merge request.
   A merge request that changes `.tekton/validate.yaml` therefore continues to
   use the current `main` definition until that merge request is merged.
+- The Developer token includes the `api` scope. GitLab can use that scope to
+  modify an unprotected branch through its API even when the token lacks
+  `write_repository`; treat it as write-capable until `main` is protected and
+  the protection is verified.
 - CD writes with the separate `maintainer` token of Connector
   `<project>-gitops-writer`: `envs/test` by direct commit to `main`,
   `envs/prod` by merge request.
@@ -138,5 +142,5 @@ done
 | `registry.example.com/shop-prod/hello` | `envs/_prod/kustomization.yaml` (`newName`) | release image repository; replace the literal registry, project and image values |
 | `<digest>` | `envs/_env/kustomization.yaml`, `envs/_prod/kustomization.yaml` | image digest written by the delivery pipeline |
 | `shop-test` / `shop-prod` | `envs/_env/kustomization.yaml`, `envs/_prod/kustomization.yaml` | environment namespaces; replace the literal values during seeding |
-| `envs/<environment>` | `.tekton/validate.yaml` (`paths`) | the generated environment directories; list every seeded overlay |
+| `envs/<environment>` (generated from `envs/_env` or `envs/_prod`) | `.tekton/validate.yaml` (`paths`) | the generated environment directories; list every seeded overlay |
 | `<registry>/<catalog-project>/kubectl:<tag>` | `.tekton/validate.yaml` (`image` of the render task) | an air-gapped image of your registry with `sh` and `kubectl`; set host, project and tag in the template repository |

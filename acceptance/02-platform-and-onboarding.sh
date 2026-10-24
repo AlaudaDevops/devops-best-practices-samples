@@ -116,7 +116,7 @@ probe_state() { # $1 namespace, $2 regex of expected states
   printf '%s\n' "$s"
 }
 
-# 2. Namespace boundaries (the namespace-boundary section and onboarding acceptance row 2): workload namespaces enforce
+# 2. Namespace boundaries (the acceptance table's onboarding row): workload namespaces enforce
 # `restricted`; the build namespace is `baseline` so buildah can run.
 for ns in $WORKLOAD_NAMESPACES; do
   lv=$(k get ns "$ns" -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}' 2>/dev/null)

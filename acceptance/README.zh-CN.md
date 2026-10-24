@@ -16,7 +16,7 @@ English version：[README.md](README.md)。
 
 每项检查只输出一行 `PASS <label>` 或 `FAIL <label>`，脚本末尾输出 `== result: X pass / Y fail ==`，有失败时以非零状态退出。`delivery-signature`、`onboarding-application` 等 label 是脚本内部稳定的检查 ID，不是英文文章的章节编号。
 
-如果平台安装了 `policies/no-bare-taskrun.yaml`，还要在可丢弃的项目命名空间中单独验收：用项目身份创建一个最小的裸 TaskRun，确认 `Audit` 放行并产生 PolicyReport，再切换策略到 `Enforce`，确认同一个请求被拒绝。两次检查后删除探针。必须发起真实请求；server-side dry run 不会创建 Audit 检查所需的 PolicyReport。
+如果平台安装了 `policies/no-bare-taskrun.yaml`，要注意它是全集群生效的 `ClusterPolicy`：修改 `failureAction` 会影响所有命名空间，Argo CD 自愈还可能把手工修改恢复。该检查只能在专用验收集群执行。通过平台仓库的合并请求修改策略并等待 Argo CD 同步，不要直接编辑 live 对象，也不要在项目命名空间复制一份策略。`Audit` 模式下，用项目身份创建最小裸 TaskRun，确认请求放行并产生 PolicyReport；再通过平台仓库合并请求切到 `Enforce`，重新发起真实请求并确认准入拒绝；检查结束后仍通过合并请求恢复 `Audit`。两次观察后删除探针。server-side dry run 不会创建 Audit 检查所需的 PolicyReport。
 
 ## 运行
 
@@ -43,7 +43,7 @@ ONBOARDING_RERUN=<pipelinerun> ALLOW_MUTATING=true ./02-platform-and-onboarding.
 
 ## 结果判定要点
 
-- 交付脚本先用 cosign 验证签名和 provenance，再要求签名阳性 Pod 的 PolicyReport 明确指向本次 digest，并包含 `verified image signatures for <image>`。泛化的 `pass`、旧报告、认证失败都不能算验签成功。
+- 交付脚本先用 cosign 验证签名和 provenance，再要求签名阳性 Pod 的 PolicyReport 包含 `verified image signatures for <image>` 或 `verified from cache`。两种结果都必须属于本次 Pod 的精确 UID 和验签策略，且查回的 Pod 仍然只包含独立验证过的同一镜像。泛化的 `pass`、旧报告、认证失败都不能算验签成功。
 - 未签名检查在 Kyverno `Audit` 模式下等待属于本次探针 UID 的报告；报告可能先为 `pass (image verified)`，约 40 秒后才变为 `fail (no signatures found)`，脚本最多等待 `WAIT_SECONDS`（默认 120 秒）。在 `Enforce` 模式应看到准入拒绝。
 - 正向跨项目拉取必须先证明镜像确实存在；两个私有项目的“镜像不存在”和“无权拉取”事件可能相同。探针使用 `imagePullPolicy: Always`，因此验证的是 registry 授权边界。默认 kubelet 可能直接使用节点已有镜像，脚本不覆盖 `AlwaysPullImages` 或其他重新校验凭据的集群设置。
 - Harbor 私有项目的客户端登录（`skopeo login`、`cosign login` 或 `REGISTRY_AUTH_FILE`）只供脚本使用，不会成为 Kyverno 的凭据。切换 `require-signed-images` 到 `Enforce` 前，必须另行给 Kyverno 配置读取发布镜像及签名附件的凭据。

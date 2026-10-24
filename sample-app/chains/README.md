@@ -21,23 +21,28 @@ IMAGE=registry.example.com/shop/hello@sha256:<digest> COSIGN_PUB=./cosign.pub IG
   private key `cosign.key` and its password, so `get` on it must stay with
   platform administrators. The platform can publish `cosign.pub` in a
   ConfigMap or a public repository instead (this sample does not).
-- Before enabling signing, a platform administrator confirms that only
-  platform administrators can read `signing-secrets`: check the
-  ServiceAccounts of each project namespace with
-  `kubectl auth can-i get secret/signing-secrets -n tekton-pipelines --as=system:serviceaccount:<namespace>:<serviceaccount>`
-  and review the ClusterRoleBindings that grant read access to Secrets
-  cluster-wide.
-- Treat `signing-secrets` as an immutable key object when the platform enables
+- Before enabling signing, a platform administrator checks every project
+  identity, including automatically created EventListener ServiceAccounts,
+  as described in [Check project access](#check-project-access-before-enabling-signing).
+- Before replacing `signing-secrets`, inspect its `immutable` field,
+  `ownerReferences`, and installation method. Use the corresponding Chains,
+  operator, or SealedSecret workflow and update its managed source as needed.
+  Treat `signing-secrets` as an immutable key object when the platform enables
   Secret immutability. Rotate it by creating and validating a replacement in a
   maintenance window, then update the public verification key and admission
-  policy together; do not edit the key data in place.
+  policy together; do not edit the key data in place. In `require-signed-images`,
+  use one attestor with `count: 1` and separate `entries` for the old and new
+  public keys, including each key's offline options when needed. This accepts
+  either key. Keep the old entry until every image signed with the
+  old key, including rollback images and running Pods, is retired. Verify with
+  both keys during the transition, then remove the old key in a separate
+  reviewed change.
 - Check the central Chains registry credential the same way (Secret
   `chains-registry-credential` in `tekton-pipelines`, see "Where signatures
   are stored"): it is a standing credential with push on every Harbor project
   whose images Chains signs, `shop-prod` included, outside the promotion's
   approval. Only platform administrators may read it or create Pods in
-  `tekton-pipelines`:
-  `kubectl auth can-i get secret/chains-registry-credential -n tekton-pipelines --as=system:serviceaccount:<namespace>:<serviceaccount>`.
+  `tekton-pipelines`; include this Secret in the access checks below.
 - A valid signature and provenance prove that the image was signed with the
   platform's Chains key (a TaskRun reported the image), not which cluster or
   which Pipeline produced it. The same key can be restored on another cluster
@@ -74,6 +79,44 @@ IMAGE=registry.example.com/shop/hello@sha256:<digest> COSIGN_PUB=./cosign.pub IG
   directory: the platform repository ships the Kyverno `verifyImages` policy
   `require-signed-images` (its `policies/require-signed-images.yaml`) for the
   release repositories, with the same `cosign.pub`.
+
+## Check project access before enabling signing
+
+Run these checks as a platform administrator for every ServiceAccount in every
+project namespace. Replace the namespace and account with the actual values;
+the example includes the groups carried by a Kubernetes ServiceAccount token.
+Use the installed Chains namespace if it differs from `tekton-pipelines`.
+
+```bash
+# PROJECT_NS and PROJECT_SA identify the project ServiceAccount being checked.
+PROJECT_NS=shop
+PROJECT_SA=triggers-default-sa
+PROJECT_IDENTITY=(
+  "--as=system:serviceaccount:${PROJECT_NS}:${PROJECT_SA}"
+  --as-group=system:authenticated
+  --as-group=system:serviceaccounts
+  "--as-group=system:serviceaccounts:${PROJECT_NS}"
+)
+# Each command must print "no"; that result has exit status 1.
+kubectl auth can-i get secret/signing-secrets -n tekton-pipelines "${PROJECT_IDENTITY[@]}"
+kubectl auth can-i get secret/chains-registry-credential -n tekton-pipelines "${PROJECT_IDENTITY[@]}"
+kubectl auth can-i list secrets -n tekton-pipelines "${PROJECT_IDENTITY[@]}"
+kubectl auth can-i watch secrets -n tekton-pipelines "${PROJECT_IDENTITY[@]}"
+kubectl auth can-i create pods -n tekton-pipelines "${PROJECT_IDENTITY[@]}"
+```
+
+Check project users and groups as well. Inspect effective cluster-wide grants,
+not only the RoleBindings created by onboarding. If any project identity is
+allowed, stop onboarding, narrow the grants in their platform-managed source
+or install a component version with least-privilege roles, and repeat the
+checks. Confirm actual Secret GET denial using a separate project token with
+no administrator client certificate; request only metadata in the output.
+
+Built-in webhook Secret validation runs under the separate core-interceptors
+identity. An EventListener does not need cluster-wide Secret reads for that
+validation. After narrowing permissions, verify that a real authenticated
+webhook still starts the intended run and an incorrect credential starts none.
+Repeat the permission checks after component reconciliation or upgrades.
 
 ## Where signatures are stored, and with which credential
 
@@ -145,9 +188,14 @@ project of their own: Chains `storage.oci.repository` in TektonConfig
 - export `COSIGN_REPOSITORY=<that repository>` before `verify.sh` and
   `cosign tree`, and give the attestor entry of the platform policy the same
   `repository`; Kyverno must be able to read that repository;
-- the CI image and the release image have the same digest, so they share one
-  `sha256-<digest>.sig` / `.att` tag there, and the promotion's signature and
-  provenance replace the CI build's: verify the CI build before promotion, and
-  do not add the `.sig` / `.att` mappings to the promotion run.
+- changing the storage setting does not migrate existing attachments. Preserve
+  the existing CI evidence separately before switching, and verify a newly
+  signed image's signature and provenance in the configured repository before
+  relying on that location for promotion;
+- the CI and release images have the same digest. Check attachment storage and
+  overwrite behavior with your registry and Chains configuration. Where they
+  share one attachment tag and promotion replaces the CI evidence, verify and
+  retain the CI evidence independently before promotion, and omit `.sig` / `.att`
+  mappings from that promotion run.
 
 This is sample material, not part of the product.

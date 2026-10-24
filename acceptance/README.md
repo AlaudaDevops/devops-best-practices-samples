@@ -26,13 +26,17 @@ anything failed. Labels such as `delivery-signature` and `onboarding-application
 script-local checklist IDs used to correlate output with this README; they are
 not chapter numbers in the English articles.
 
-When the platform installs `policies/no-bare-taskrun.yaml`, perform its
-admission check separately in a disposable project namespace: create a minimal
-direct TaskRun as the project identity, confirm that `Audit` admits it and
-records a PolicyReport, then switch the policy to `Enforce` and confirm the same
-request is rejected. Delete the probe after both observations. This check must
-use a real request; a server-side dry run does not create the PolicyReport used
-by the Audit assertion.
+When the platform installs `policies/no-bare-taskrun.yaml`, remember that it is
+a cluster-wide `ClusterPolicy`: changing its `failureAction` affects every
+namespace, and an Argo CD self-healing sync can restore the value. Perform this
+check only on a dedicated acceptance cluster. Change the policy through a
+reviewed platform-repository merge request and wait for Argo CD; do not edit the
+live object or apply a per-namespace copy. In `Audit`, create a minimal direct
+TaskRun as the project identity and confirm that it is admitted and records a
+PolicyReport. Submit the platform-repository change to `Enforce`, repeat the
+real request, and confirm that admission rejects it; restore `Audit` through a
+merge request after the check. Delete the probe after both observations. A
+server-side dry run does not create the PolicyReport used by the Audit assertion.
 
 ## Running
 
@@ -87,9 +91,10 @@ policy other than `NeverVerify`; this sample does not cover either).
 
 The delivery script first verifies the production signature and provenance
 with cosign. `delivery-signed-image` then requires admission of that digest
-and a matching `pass` report whose message names the verified image
-(`verified image signatures for <image>`); a generic initial pass is not
-sufficient. If it fails, the unsigned check cannot pass.
+and a matching `pass` report with `verified image signatures for <image>` or
+`verified from cache`. Both forms must belong to the exact probe Pod UID and
+policy; the live Pod must still contain exactly the independently verified image.
+A generic initial pass is insufficient. If it fails, the unsigned check cannot pass.
 
 The pull checks test one direction per invocation. Swap `PROJECT` and
 `OTHER_PROJECT`, use an existing image from the other registry project as
@@ -108,7 +113,8 @@ to `fail` (`no signatures found`) only later, about 40 s after the Pod is
 created. The negative check requires a missing-signature message; a generic
 policy failure or registry login failure does not count. When you read a
 report by hand, wait a minute; a `pass` that follows a real verification
-names the image (`verified image signatures for <image>`).
+names the image (`verified image signatures for <image>`) or reports
+`verified from cache` for that exact Pod UID and its checked image.
 
 Needs `kubectl`; `skopeo` for the registry check and `cosign` for the
 signature check of the delivery article. The Harbor projects are private and the

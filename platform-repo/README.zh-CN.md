@@ -98,13 +98,17 @@ kubectl -n argocd get secret \
 | `connector-mount-delivery.yaml` | `templates/connector-mount-delivery.yaml` | CD namespace 的 GitOps writer 权限 |
 | `kustomization.yaml` | `render.sh` | 列出以上文件并加入 `projects/kustomization.yaml` |
 
+## 开通前的签名凭据隔离
+
+开通项目前，按 [Chains 权限检查](../sample-app/chains/README.zh-CN.md#启用签名前检查项目权限) 核对所有项目 ServiceAccount（包括 EventListener 身份），确认不能在 `tekton-pipelines` 读取、列出或 watch Secret，也不能创建 Pod。任何请求被允许时，先通过平台的权限管理源收窄授权或安装使用最小权限角色的组件版本，再重复检查。权限调整后验证真实 webhook 的正确认证可触发、错误认证不触发。中央 `chains-registry-credential` 是长期有效且可推送生产仓库的凭据，也必须纳入检查和定期轮换。
+
 ## 新集群恢复
 
 恢复顺序：
 
 1. 安装 Kyverno、Sealed Secrets、Pipelines 和 Connectors。
 2. 恢复旧 Sealed Secrets 密钥，或为 `credentials/` 中每个文件重新生成 ciphertext。
-3. 恢复 Chains `signing-secrets`；若换新 key，同一提交必须更新 `require-signed-images.yaml` 的公钥，并创建 `chains-registry-credential`。
+3. 恢复 Chains `signing-secrets`；若轮换到新 key，先在 `require-signed-images.yaml` 的同一 attestor 中设置 `count: 1`，以独立 entries 保留旧、新公钥。验证旧镜像仍可准入，再通过对应管理流程替换 signer 并验证新镜像准入；旧签名镜像和回滚版本退役后才能删除旧 entry。详见 [`sample-app/chains/README.zh-CN.md`](../sample-app/chains/README.zh-CN.md)。同时创建 `chains-registry-credential`。
 4. 创建 `platform-connectors` 和四个 Connector Task。
 5. 配置 Argo CD 的平台仓库只读凭据、`repo-creds` 和 PaC webhook 凭据。
 

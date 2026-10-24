@@ -79,7 +79,7 @@ done
 | `registry.example.com/shop-prod/hello` | `envs/_prod/kustomization.yaml` | 发布镜像仓库的 `newName` |
 | `<digest>` | 两个 overlay | 交付流水线写入的镜像 digest |
 | `shop-test` / `shop-prod` | 两个 overlay | 目标环境命名空间 |
-| `envs/<environment>` | `.tekton/validate.yaml` 的 `paths` | 播种生成的所有 overlay |
+| `envs/<environment>`（由 `envs/_env` 或 `envs/_prod` 生成） | `.tekton/validate.yaml` 的 `paths` | 播种生成的所有 overlay |
 | `<registry>/<catalog-project>/kubectl:<tag>` | `.tekton/validate.yaml` | air-gap 可用、带 `sh` 和 `kubectl` 的工具镜像 |
 
 This is sample material, not part of the product.

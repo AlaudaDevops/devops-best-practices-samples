@@ -214,7 +214,7 @@ fi
 
 
 # 4a. Independently verified signed image must be admitted AND produce the
-# image-specific successful verification message, not the initial generic pass.
+# image-specific or cached verification message, not the initial generic pass.
 label="delivery-signed-image signed image admitted and verified in $PROD_NS"
 signed_admitted=false
 if [ "$signed_image_verified" != true ]; then
@@ -225,14 +225,25 @@ elif out=$(probe_pod "$PROD_NS" "$rel_img" "$signed_probe" 2>&1); then
   uid=$(k -n "$PROD_NS" get pod "$signed_probe" -o jsonpath='{.metadata.uid}' 2>/dev/null)
   found=""
   for _ in $(seq 1 "$WAIT_SECONDS"); do
-    found=$(k -n "$PROD_NS" get policyreports -o jsonpath="{range .items[?(@.scope.uid==\"$uid\")]}{range .results[?(@.policy==\"$SIGNED_POLICY\")]}{.result}{'|'}{.message}{'\n'}{end}{end}" 2>/dev/null \
+    # Confirm the same live Pod still has exactly the independently verified image.
+    identity=$(k -n "$PROD_NS" get pod "$signed_probe" -o jsonpath='{.metadata.uid}{"|"}{range .spec.containers[*]}{.image}{" "}{end}' 2>/dev/null)
+    # A cached result omits the image; its exact resource UID binds it to this Pod.
+    reports=$(k -n "$PROD_NS" get policyreports -o jsonpath="{range .items[?(@.scope.uid==\"$uid\")]}{range .results[?(@.policy==\"$SIGNED_POLICY\")]}{.result}{'|'}{.message}{'\n'}{end}{end}" 2>/dev/null)
+    found=$(printf '%s\n' "$reports" \
       | grep '^pass|' | grep -F 'verified image signatures for' | grep -F "$rel_img")
-    [ -n "$uid" ] && [ -n "$found" ] && break
+    if [ -z "$found" ]; then
+      found=$(printf '%s\n' "$reports" | grep -Fx 'pass|verified from cache')
+    fi
+    [ -n "$uid" ] && [ "$identity" = "$uid|$rel_img " ] && [ -n "$found" ] && break
     sleep 1
   done
-  if [ -n "$uid" ] && [ -n "$found" ]; then
+  if [ -n "$uid" ] && [ "$identity" = "$uid|$rel_img " ] && [ -n "$found" ]; then
     signed_admitted=true
-    ok "$label"
+    if [ "$found" = 'pass|verified from cache' ]; then
+      ok "$label (cached verification)"
+    else
+      ok "$label"
+    fi
   else
     ko "$label: no image-specific successful PolicyReport within ${WAIT_SECONDS}s"
   fi
